@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="dark">
+    <title>班級作品牆</title>
+    <style>
+        :root {
+            --bg: #24292E;
+            --card: #2F363D;
+            --border: #444C56;
+            --text: #ADBAC7;
+            --title: #FFFFFF;
+            --accent: #7EE787;
+            --muted: #8B949E;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", Roboto, sans-serif;
+            line-height: 1.5;
+        }
+        main { max-width: 960px; margin: 0 auto; padding: 40px 16px 24px; }
+        h1 { color: var(--title); font-size: 2.2rem; margin: 0 0 8px; letter-spacing: 0.05em; }
+        .sub { margin: 0 0 32px; color: var(--muted); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+        .card {
+            display: flex; flex-direction: column; gap: 8px;
+            background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+            padding: 20px; text-decoration: none; color: inherit;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+        .card:hover, .card:focus-visible { transform: translateY(-2px); border-color: var(--accent); outline: none; }
+        .card-title { color: var(--title); font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; }
+        .card-meta { color: var(--muted); font-size: 0.9rem; }
+        .card-go { margin-top: auto; color: var(--accent); font-weight: 700; }
+        .status { color: var(--muted); text-align: center; padding: 32px 0; }
+        footer { margin-top: 32px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>班級作品牆</h1>
+    <p class="sub">學員自己做的互動網頁，點開就能玩。</p>
+    <div id="grid" class="grid"></div>
+    <p id="status" class="status" role="status">載入中…</p>
+    <footer>作品由學員自行製作並發布；如需下架，請告訴老師。</footer>
+</main>
+
+<script>
+    // 作品清單 works.json 由發布機器人維護。內容來自學員，一律用 textContent 顯示，避免被塞入 HTML。
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+
+    function formatDate(iso) {
+        const d = new Date(iso);
+        return isNaN(d) ? '' : d.toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' });
+    }
+
+    function renderWork(work) {
+        const a = document.createElement('a');
+        a.className = 'card';
+        a.href = work.path;
+        a.target = '_blank';
+        a.rel = 'noopener';
+
+        const title = document.createElement('div');
+        title.className = 'card-title';
+        title.textContent = work.title || work.work;
+
+        const meta = document.createElement('div');
+        meta.className = 'card-meta';
+        meta.textContent = [work.nick, formatDate(work.at)].filter(Boolean).join(' · ');
+
+        const go = document.createElement('div');
+        go.className = 'card-go';
+        go.textContent = '開啟作品 →';
+
+        a.append(title, meta, go);
+        return a;
+    }
+
+    fetch('works.json', { cache: 'no-store' })
+        .then((res) => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        })
+        .then((works) => {
+            if (!Array.isArray(works) || works.length === 0) {
+                status.textContent = '還沒有作品，等第一位同學發布吧！';
+                return;
+            }
+            works.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+            works.forEach((w) => grid.appendChild(renderWork(w)));
+            status.hidden = true;
+        })
+        .catch(() => {
+            status.textContent = '作品清單暫時載入失敗，請稍後重新整理。';
+        });
+</script>
+</body>
+</html>
