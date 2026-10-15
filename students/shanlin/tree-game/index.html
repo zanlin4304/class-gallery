@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>種樹吧</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：全螢幕畫布場景。上方 HUD（時間／分數／樹種進度點）→ 傳送帶跑條 → 背景森林 → 下方三個出場格。
+   單一視覺世界：從熱到發紅的荒地，隨樹木變多慢慢變綠，UI 用暖棕＋奶油色，不做深淺主題切換。 */
+:root {
+  --ink: #2c1b10;
+  --cream: #fff4dc;
+  --paper: #fffaf0;
+  --leaf: #3f9b4f;
+  --leaf-d: #2b6e3a;
+  --clay: #c8553d;
+  --bark: #6b4423;
+  --hud: rgba(44, 27, 16, .72);
+  --f-display: "LXGW WenKai TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --f-body: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+[hidden] { display: none !important; }
+html { height: 100%; overscroll-behavior: none; }
+body {
+  height: 100%; margin: 0; overflow: hidden;
+  background: var(--clay); color: var(--cream); font-family: var(--f-body);
+  -webkit-user-select: none; user-select: none;
+}
+#app { position: fixed; inset: 0; overflow: hidden; }
+#c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+#hud {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 8px;
+  background: var(--hud); border-bottom: 1px solid rgba(255, 255, 255, .14);
+  backdrop-filter: blur(4px); pointer-events: none;
+}
+.brand { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.brand b { font: 700 24px/1 var(--f-display); letter-spacing: .08em; }
+.stat { display: flex; align-items: baseline; gap: 6px; }
+.stat span { font-size: 12px; letter-spacing: .12em; opacity: .78; }
+.stat b { font: 700 26px/1 var(--f-display); font-variant-numeric: tabular-nums; min-width: 1.6ch; }
+.stat.warn b { color: #ff9b7a; animation: blink .5s steps(2) infinite; }
+.stat b.pop { animation: pop .22s ease-out; }
+.green { display: flex; align-items: center; gap: 6px; }
+.green span { font-size: 12px; letter-spacing: .12em; opacity: .78; }
+.pips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 250px; }
+.pip { width: 11px; height: 11px; border-radius: 50%; background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28); }
+.pip:nth-child(3n) { margin-right: 4px; }
+.pip.on { background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); }
+.pip.on.new { animation: pop .45s ease-out; }
+#stCombo b { color: #ffd15a; }
+#btnSound {
+  pointer-events: auto; cursor: pointer; font: 500 12px/1 var(--f-body); color: var(--cream);
+  background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .35); border-radius: 999px; padding: 6px 12px;
+}
+#btnSound:focus-visible, .go:focus-visible { outline: 3px solid #ffd15a; outline-offset: 2px; }
+@keyframes blink { 50% { opacity: .35; } }
+@keyframes pop { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@media (max-width: 560px) {
+  #hud { gap: 2px 12px; padding-bottom: 6px; }
+  .brand b { font-size: 20px; }
+  .stat b { font-size: 21px; }
+  .pip { width: 9px; height: 9px; }
+  .pips { max-width: 190px; }
+}
+
+#overlay {
+  position: absolute; inset: 0; z-index: 5; display: flex; padding: 16px; box-sizing: border-box;
+  background: rgba(30, 16, 8, .58); overflow: auto; touch-action: pan-y;
+}
+.card {
+  margin: auto; width: min(600px, 100%); box-sizing: border-box; position: relative;
+  background: var(--paper); color: var(--ink); border-radius: 20px; padding: 22px 22px 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  -webkit-user-select: text; user-select: text;
+}
+.kicker { font: 700 13px/1 var(--f-body); letter-spacing: .2em; color: var(--clay); margin-bottom: 8px; }
+.card h1, .card h2 { margin: 0 0 8px; font: 700 clamp(38px, 9vw, 54px)/1.05 var(--f-display); letter-spacing: .06em; }
+.lead { margin: 0 0 12px; font-size: 15px; line-height: 1.7; }
+.lands { display: grid; gap: 5px; margin-bottom: 10px; }
+.land { display: grid; grid-template-columns: 54px 1fr; gap: 8px; align-items: center; background: #f5ead2; border-radius: 10px; padding: 6px 10px; }
+.land b { font: 700 15px/1.2 var(--f-display); }
+.land div { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.land i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+.mats-t { margin: 0 0 4px; font: 700 13px/1 var(--f-body); letter-spacing: .12em; color: #7a5b3a; }
+.mats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+.mats span { display: flex; align-items: center; gap: 2px; font-size: 12px; }
+.ic { width: 30px; height: 30px; flex: none; }
+.rules { margin: 0 0 16px; padding-left: 1.2em; font-size: 14px; line-height: 1.75; }
+.go {
+  display: block; width: 100%; border: 0; border-radius: 14px; padding: 15px; cursor: pointer;
+  font: 700 20px/1 var(--f-display); letter-spacing: .24em; color: #fff; background: var(--leaf); box-shadow: 0 4px 0 var(--leaf-d);
+}
+.go:hover { filter: brightness(1.07); }
+.go:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--leaf-d); }
+.result { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 12px 0 8px; }
+.result span { display: block; font-size: 12px; color: #7a5b3a; letter-spacing: .1em; }
+.result b { font: 700 34px/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
+.stars { font: 700 34px/1 var(--f-display); color: #e0a020; letter-spacing: .12em; margin-bottom: 8px; }
+#oMsg { margin: 0 0 16px; font-size: 15px; line-height: 1.7; }
+.brand small { font: 700 12px/1 var(--f-body); letter-spacing: .12em; background: rgba(255, 255, 255, .2); border-radius: 999px; padding: 4px 9px; }
+.diffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 14px; }
+.diff {
+  cursor: pointer; border: 0; border-radius: 14px; padding: 12px 6px 10px; color: #fff; text-align: center;
+  font-family: var(--f-body); background: var(--bg); box-shadow: 0 4px 0 var(--sh);
+}
+.diff:hover { filter: brightness(1.07); }
+.diff:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--sh); }
+.diff:focus-visible { outline: 3px solid #ffd15a; outline-offset: 2px; }
+.diff b { display: block; font: 700 22px/1.1 var(--f-display); letter-spacing: .14em; }
+.diff span { display: block; font-size: 14px; font-weight: 700; margin-top: 5px; }
+.diff small { display: block; font-size: 11px; line-height: 1.4; opacity: .92; margin-top: 3px; }
+.diff.easy { --bg: #3f9b4f; --sh: #2b6e3a; }
+.diff.mid { --bg: #cf8a1c; --sh: #986310; }
+.diff.hard { --bg: #c8553d; --sh: #8f3524; }
+.more { margin: 0 0 12px; }
+.more summary { cursor: pointer; font: 700 13px/1.6 var(--f-body); letter-spacing: .08em; color: #7a5b3a; margin-bottom: 6px; }
+.btns { display: grid; gap: 8px; }
+.go.alt { background: #efe3c8; color: var(--ink); box-shadow: 0 4px 0 #cdb98c; font-size: 16px; letter-spacing: .14em; padding: 12px; }
+.go.alt:active { box-shadow: 0 2px 0 #cdb98c; }
+@media (max-width: 460px) {
+  .card { padding: 18px 16px 16px; }
+  .land { grid-template-columns: 1fr; gap: 2px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <canvas id="c" aria-label="種樹遊戲畫面"></canvas>
+
+  <header id="hud">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="10" r="8" fill="#5fbf55"/><circle cx="8" cy="12" r="5" fill="#4aa447"/><rect x="11.5" y="14" width="3" height="10" rx="1" fill="#a06a36"/></svg>
+      <b>種樹吧</b>
+      <small id="vDiff">簡單</small>
+    </div>
+    <div class="stat" id="stTime"><span>時間</span><b id="vTime">120</b></div>
+    <div class="stat"><span>分數</span><b id="vScore">0</b></div>
+    <div class="stat"><span>已種</span><b id="vTrees">0/18</b></div>
+    <div class="green"><span>樹種</span><div class="pips" id="pips"></div></div>
+    <div class="stat" id="stCombo" hidden><span>連擊</span><b id="vCombo">0</b></div>
+    <button id="btnSound" type="button" aria-pressed="true">音效 開</button>
+  </header>
+
+  <section id="overlay">
+    <div class="card" id="menu">
+      <div class="kicker">把荒地種回森林</div>
+      <h1>種樹吧</h1>
+      <p class="lead">上方跑條會送來材料。抓起材料，拖到下面的格子，照格子上方的圖示順序種樹。選一個難度，時間內種完指定棵數就過關。</p>
+      <div class="diffs" id="diffs"></div>
+      <ul class="rules">
+        <li>抓起來就要馬上用：拖到格子放開才算，放在別處就浪費。</li>
+        <li>每種樹的步驟不同。順序錯了，材料報銷、扣分、連擊歸零。</li>
+        <li>三個難度都是 120 秒。剩下的時間換成加分，種得越快星星越多。</li>
+      </ul>
+      <details class="more">
+        <summary>18 種樹和 8 種材料（每局從中抽樹）</summary>
+        <div class="lands" id="lands"></div>
+        <p class="mats-t">8 種材料</p>
+        <div class="mats" id="mats"></div>
+      </details>
+    </div>
+
+    <div class="card" id="over" hidden>
+      <div class="kicker" id="oRank">時間到</div>
+      <h2 id="oTitle">時間到</h2>
+      <div class="stars" id="oStars" hidden></div>
+      <div class="result">
+        <div><span>分數</span><b id="oScore">0</b></div>
+        <div><span>種下</span><b id="oTrees">0</b></div>
+        <div id="oTimeBox"><span>剩餘時間</span><b id="oTime">0</b></div>
+        <div><span>最高分</span><b id="oBest">0</b></div>
+      </div>
+      <p id="oMsg"></p>
+      <div class="btns">
+        <button class="go" id="btnNext" type="button" hidden>挑戰下一個難度</button>
+        <button class="go" id="btnAgain" type="button">再種一次</button>
+        <button class="go alt" id="btnMenu" type="button">選難度</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ================= 工具 ================= */
+const $ = id => document.getElementById(id);
+const app = $('app'), cv = $('c'), ctx = cv.getContext('2d'), hud = $('hud');
+const TAU = Math.PI * 2, PI = Math.PI;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const easeIn = t => t * t;
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const elastic = t => t <= 0 ? 0 : t >= 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - .75) * TAU / 3) + 1;
+function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rgb = (c, a) => a === undefined ? 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')' : 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')';
+const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function ell(c, x, y, rx, ry) { c.beginPath(); c.ellipse(x, y, Math.max(.01, rx), Math.max(.01, ry), 0, 0, TAU); }
+function circ(c, x, y, r) { c.beginPath(); c.arc(x, y, Math.max(.01, r), 0, TAU); }
+function poly(c, pts) { c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); }
+
+const FONT_D = '"LXGW WenKai TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+const FONT_B = '"Noto Sans TC","Microsoft JhengHei",sans-serif';
+
+/* ================= 遊戲設定 ================= */
+const STEP_PTS = 10, TREE_PTS = 50, TIME_BONUS = 5;
+
+/* 三個難度：時間都是 120 秒，差在要種幾棵。簡單只出 3 步驟的樹；星星看剩餘秒數 */
+const DIFFS = [
+  { id: 'easy', name: '簡單', goal: 6, time: 120, maxSteps: 3, star3: 50, star2: 25, note: '只出 3 步驟的樹' },
+  { id: 'mid', name: '中等', goal: 9, time: 120, maxSteps: 4, star3: 30, star2: 12, note: '會出 4 步驟的樹' },
+  { id: 'hard', name: '困難', goal: 12, time: 120, maxSteps: 4, star3: 20, star2: 6, note: '會出 4 步驟的樹' }
+];
+
+/* 8 種材料（原 7 種＋針葉苗） */
+const ITEMS = {
+  worker: '工人', sapling: '樹苗', conifer: '針葉苗', seed: '種子',
+  water: '水', straw: '草方格', stake: '木樁', rock: '石塊'
+};
+const ITEM_KEYS = Object.keys(ITEMS);
+const ACT = { straw: 'straw', worker: 'dig', sapling: 'sapling', conifer: 'sapling', seed: 'seed', water: 'water', stake: 'stake', rock: 'rock' };
+const step = (item, text) => ({ item, act: ACT[item], text });
+
+/* 18 種樹＝6 種地形 × 3 種樹，各有自己的種樹流程（每步都有對應動畫） */
+const FLOWS = [
+  { id: 'populus', terrain: 'desert', env: '沙漠', tree: '胡楊', sp: 'populus', steps: [step('straw', '鋪草方格固沙'), step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('water', '澆水')] },
+  { id: 'saxaul', terrain: 'desert', env: '沙漠', tree: '梭梭', sp: 'saxaul', seedKind: 'nut', steps: [step('straw', '鋪草方格固沙'), step('seed', '播下種子'), step('water', '澆水')] },
+  { id: 'oleaster', terrain: 'desert', env: '沙漠', tree: '沙棗', sp: 'oleaster', steps: [step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('water', '澆水')] },
+
+  { id: 'mangrove', terrain: 'coast', env: '海岸', tree: '水筆仔', sp: 'mangrove', seedKind: 'pod', steps: [step('worker', '工人整地挖穴'), step('seed', '插入胎生苗'), step('water', '澆水')] },
+  { id: 'avicennia', terrain: 'coast', env: '海岸', tree: '海茄苳', sp: 'avicennia', seedKind: 'pod', steps: [step('worker', '工人整地挖穴'), step('seed', '插入胎生苗'), step('water', '澆水'), step('stake', '打木樁固定')] },
+  { id: 'casuarina', terrain: 'coast', env: '海岸', tree: '木麻黃', sp: 'casuarina', steps: [step('worker', '工人挖樹坑'), step('conifer', '放入針葉苗'), step('stake', '立木樁防風')] },
+
+  { id: 'camphor', terrain: 'hill', env: '山坡', tree: '樟樹', sp: 'camphor', steps: [step('rock', '砌石擋土'), step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('stake', '立木樁護苗')] },
+  { id: 'acacia', terrain: 'hill', env: '山坡', tree: '相思樹', sp: 'acacia', seedKind: 'nut', steps: [step('rock', '砌石擋土'), step('seed', '播下種子'), step('water', '澆水')] },
+  { id: 'goldenrain', terrain: 'hill', env: '山坡', tree: '台灣欒樹', sp: 'goldenrain', steps: [step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('stake', '立木樁護苗')] },
+
+  { id: 'fir', terrain: 'alpine', env: '高山', tree: '台灣冷杉', sp: 'fir', steps: [step('rock', '砌石擋雪'), step('worker', '工人挖樹坑'), step('conifer', '放入針葉苗'), step('stake', '立木樁固定')] },
+  { id: 'taiwania', terrain: 'alpine', env: '高山', tree: '台灣杉', sp: 'taiwania', steps: [step('worker', '工人挖樹坑'), step('conifer', '放入針葉苗'), step('water', '澆水')] },
+  { id: 'juniper', terrain: 'alpine', env: '高山', tree: '玉山圓柏', sp: 'juniper', steps: [step('rock', '砌石擋風'), step('conifer', '放入針葉苗'), step('stake', '立木樁固定')] },
+
+  { id: 'baldcypress', terrain: 'wetland', env: '濕地', tree: '落羽松', sp: 'baldcypress', steps: [step('worker', '工人挖穴'), step('conifer', '放入針葉苗'), step('water', '澆水')] },
+  { id: 'willow', terrain: 'wetland', env: '濕地', tree: '水柳', sp: 'willow', steps: [step('worker', '工人挖穴'), step('sapling', '放入樹苗'), step('stake', '立木樁護苗'), step('water', '澆水')] },
+  { id: 'bischofia', terrain: 'wetland', env: '濕地', tree: '茄苳', sp: 'bischofia', seedKind: 'nut', steps: [step('worker', '工人挖穴'), step('seed', '播下種子'), step('water', '澆水')] },
+
+  { id: 'sakura', terrain: 'park', env: '公園', tree: '櫻花', sp: 'sakura', steps: [step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('stake', '立木樁護苗'), step('water', '澆水')] },
+  { id: 'maple', terrain: 'park', env: '公園', tree: '楓香', sp: 'maple', steps: [step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('water', '澆水')] },
+  { id: 'ginkgo', terrain: 'park', env: '公園', tree: '銀杏', sp: 'ginkgo', steps: [step('worker', '工人挖樹坑'), step('sapling', '放入樹苗'), step('stake', '立木樁護苗')] }
+];
+const TERRAIN_NAMES = ['desert', 'coast', 'hill', 'alpine', 'wetland', 'park'];
+
+/* 格子區域的局部座標：寬 260、高 300；種樹點 P */
+const PX = 130, PY = 205, STAKE_X = PX + 20;
+const ROCKS = [[-46, -2, 13], [-17, -13, 12], [17, -13, 12], [46, -2, 13]];
+
+/* ================= 狀態 ================= */
+let W = 0, H = 0, DPR = 1, hudH = 56;
+let beltTop = 0, beltH = 70, beltBottom = 0, R = 30;
+let cellS = 1, cellsTop = 0, sceneH = 100, horizonY = 0, groundTop = 0;
+let mode = 'menu';                 // menu | play | over
+let diff = DIFFS[0], goal = DIFFS[0].goal, gameTime = DIFFS[0].time;
+let score = 0, combo = 0, timeLeft = gameTime, trees = 0, g = 0, T = 0, winAt = 0;
+const bests = {};
+DIFFS.forEach(d => { bests[d.id] = 0; try { bests[d.id] = +localStorage.getItem('plantTreeBest3_' + d.id) || 0; } catch (e) {} });
+const beltItems = []; let beltOffset = 0, spawnT = 0, uid = 1; const lastTypes = [];
+const forest = [], popups = [], plantedList = [];
+let queue = [], drag = null, hoverCell = null;
+
+function freshV() { return { grid: 0, hole: 0, filled: 0, sapling: 0, sType: 'broad', pod: 0, pw: 0, sprout: 0, rocks: 0, stakeOn: 0, stakeD: 0, rope: 0, wet: 0, grow: 0, fade: 1, kick: 0 }; }
+function makeCell(i) { return { flow: null, i, x: 0, y: 0, w: 0, h: 0, step: 0, q: [], cur: null, v: freshV(), locked: false, shake: 0, flash: 0, flashKind: 'ok', intro: 0, parts: [], seed: i * 13 + 5 }; }
+function resetCell(cell) { cell.step = 0; cell.q = []; cell.cur = null; cell.v = freshV(); cell.locked = false; cell.parts = []; cell.seed += 7; cell.flash = 0; cell.shake = 0; }
+const cells = [0, 1, 2].map(makeCell);
+
+/* 每局抽 goal 種樹：先讓每個地形各出一種，再補足；越前面越簡單；同時在場的三格盡量是不同地形 */
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function buildQueue(d) {
+  const pool = FLOWS.filter(f => f.steps.length <= d.maxSteps), byT = {};
+  pool.forEach(f => (byT[f.terrain] = byT[f.terrain] || []).push(f));
+  const terrains = shuffle(TERRAIN_NAMES.filter(t => byT[t])), used = new Set(), picked = [];
+  for (let round = 0; round < 4 && picked.length < d.goal; round++) {
+    for (const t of terrains) {
+      if (picked.length >= d.goal) break;
+      const cand = byT[t].filter(f => !used.has(f.id)); if (!cand.length) continue;
+      const f = cand[(Math.random() * cand.length) | 0]; used.add(f.id); picked.push(f);
+    }
+  }
+  return picked.map(f => ({ f, k: f.steps.length + Math.random() * 1.8 })).sort((a, b) => a.k - b.k).map(o => o.f);
+}
+function pickNext() {
+  if (!queue.length) return null;
+  const active = cells.map(c => c.flow && c.flow.terrain), look = Math.min(5, queue.length);
+  let idx = 0; for (let i = 0; i < look; i++) if (!active.includes(queue[i].terrain)) { idx = i; break; }
+  return queue.splice(idx, 1)[0];
+}
+function assignNext(cell) { cell.flow = null; cell.flow = pickNext(); cell.intro = cell.flow ? 1 : 0; }
+
+/* ================= 音效 ================= */
+let AC = null, soundOn = true;
+function audio() {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC && AC.state === 'suspended') AC.resume().catch(() => {});
+  } catch (e) { AC = null; }
+  return AC;
+}
+function tone(f, d, type, v, when, slide) {
+  if (!soundOn) return;
+  try {
+    const a = audio(); if (!a) return;
+    const t0 = a.currentTime + (when || 0), o = a.createOscillator(), gn = a.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t0);
+    if (slide) o.frequency.linearRampToValueAtTime(Math.max(40, f + slide), t0 + d);
+    gn.gain.setValueAtTime(.0001, t0); gn.gain.exponentialRampToValueAtTime(v || .06, t0 + .012); gn.gain.exponentialRampToValueAtTime(.0001, t0 + d);
+    o.connect(gn); gn.connect(a.destination); o.start(t0); o.stop(t0 + d + .03);
+  } catch (e) {}
+}
+const SFX = {
+  grab: () => tone(520, .08, 'triangle', .05),
+  ok: () => { tone(660, .1, 'triangle', .07); tone(990, .14, 'triangle', .06, .07); },
+  bad: () => tone(190, .24, 'sawtooth', .05, 0, -70),
+  waste: () => tone(320, .18, 'sine', .05, 0, -140),
+  tree: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .24, 'triangle', .07, i * .09)),
+  tick: () => tone(880, .06, 'square', .025),
+  lose: () => [784, 659, 523].forEach((f, i) => tone(f, .32, 'triangle', .07, i * .15)),
+  win: () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, .26, 'triangle', .07, i * .11))
+};
+
+/* ================= 圖示（跑條與格子用，全部手繪向量） ================= */
+const WK = {
+  worker: { hat: '#ffd23f', vest: '#f08a24', stripe: '#ffe066', legs: '#3b4a63', legW: 5 }
+};
+function leaf(c, x, y, rot, len, col) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.fillStyle = col;
+  c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(len * .5, -len * .5, len, 0); c.quadraticCurveTo(len * .5, len * .42, 0, 0); c.fill(); c.restore();
+}
+function dropPath(c) {
+  c.beginPath(); c.moveTo(0, -17); c.bezierCurveTo(5, -8, 12, -1, 12, 6); c.bezierCurveTo(12, 13, 6, 17, 0, 17);
+  c.bezierCurveTo(-6, 17, -12, 13, -12, 6); c.bezierCurveTo(-12, -1, -5, -8, 0, -17);
+}
+function drawIcon(c, type, x, y, r) {
+  c.save(); c.translate(x, y); const u = r / 20; c.scale(u, u); c.lineJoin = 'round'; c.lineCap = 'round';
+  switch (type) {
+    case 'worker': {
+      const k = WK.worker;
+      c.fillStyle = k.vest; rrect(c, -11, 3, 22, 16, 5); c.fill();
+      c.fillStyle = k.stripe; c.fillRect(-11, 10, 22, 3);
+      c.fillStyle = '#f2c490'; circ(c, 0, -3, 8); c.fill();
+      c.fillStyle = k.hat; c.beginPath(); c.arc(0, -5, 9.5, PI, 0); c.closePath(); c.fill(); c.fillRect(-12, -5, 24, 3);
+      c.fillStyle = '#2c1b10'; circ(c, -3, -1, 1.2); c.fill(); circ(c, 3, -1, 1.2); c.fill();
+      break; }
+    case 'sapling': {
+      c.fillStyle = '#7a4e2d'; ell(c, 0, 14, 13, 6); c.fill();
+      c.strokeStyle = '#4f9a45'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, 13); c.quadraticCurveTo(1, 2, 0, -8); c.stroke();
+      leaf(c, 0, 2, -PI + .7, 15, '#6dbd55'); leaf(c, 0, -3, -.7, 15, '#80cf63'); leaf(c, 0, -8, -PI / 2, 12, '#93de74');
+      break; }
+    case 'conifer': {
+      c.fillStyle = '#7a4e2d'; ell(c, 0, 15, 13, 5.5); c.fill();
+      c.fillStyle = '#5d3f2a'; c.fillRect(-1.6, 7, 3.2, 8);
+      c.fillStyle = '#2f6a45'; poly(c, [[-13, 9], [13, 9], [0, -3]]); c.fill();
+      c.fillStyle = '#3a7d52'; poly(c, [[-10, 1], [10, 1], [0, -10]]); c.fill();
+      c.fillStyle = '#4a9463'; poly(c, [[-7, -6], [7, -6], [0, -18]]); c.fill();
+      break; }
+    case 'seed': {
+      c.fillStyle = '#b9803d'; ell(c, 0, 5, 9, 12); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.28)'; ell(c, -3, 2, 2.5, 6); c.fill();
+      c.fillStyle = '#6b4423'; c.beginPath(); c.ellipse(0, -5, 10, 6, 0, PI, 0); c.closePath(); c.fill();
+      c.strokeStyle = '#6b4423'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(0, -10); c.lineTo(2, -16); c.stroke();
+      break; }
+    case 'water': {
+      const gd = c.createLinearGradient(-10, -14, 10, 14); gd.addColorStop(0, '#7fd6ff'); gd.addColorStop(1, '#2b94de');
+      c.fillStyle = gd; dropPath(c); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.65)'; ell(c, -4, 5, 2.2, 5); c.fill();
+      break; }
+    case 'straw': {
+      c.lineWidth = 3.2;
+      ['#e6bd4f', '#d3a437', '#efc95f', '#c99a2e', '#e2b64a'].forEach((col, i) => { c.strokeStyle = col; c.beginPath(); c.moveTo(-9 + i * 4.5, 16); c.lineTo(-14 + i * 7, -15); c.stroke(); });
+      c.fillStyle = '#b5532f'; c.fillRect(-11, 2, 22, 4.5);
+      break; }
+    case 'stake': {
+      c.fillStyle = '#b9803d'; c.beginPath(); c.moveTo(-6, -16); c.lineTo(6, -16); c.lineTo(6, 7); c.lineTo(0, 18); c.lineTo(-6, 7); c.closePath(); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(-4, -14, 3, 20);
+      c.fillStyle = '#d9a566'; ell(c, 0, -16, 6, 2.6); c.fill();
+      c.strokeStyle = '#7a4e22'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(-6, -16); c.lineTo(-6, 7); c.lineTo(0, 18); c.stroke();
+      break; }
+    case 'rock': {
+      const P = [[-15, 9], [-11, -5], [-1, -13], [11, -8], [16, 6], [6, 13]];
+      c.fillStyle = '#8f8c88'; poly(c, P); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.28)'; poly(c, [[-11, -5], [-1, -13], [4, -4], [-6, 2]]); c.fill();
+      c.fillStyle = 'rgba(0,0,0,.18)'; poly(c, [[16, 6], [6, 13], [-4, 10], [8, 2]]); c.fill();
+      c.strokeStyle = '#5f5c59'; c.lineWidth = 1.5; poly(c, P); c.stroke();
+      break; }
+  }
+  c.restore();
+}
+
+/* ================= 18 種樹的外觀 ================= */
+const SPEC = {
+  populus:    { shape: 'round', n: 9, cy: -.62, sx: .26, sy: .14, r: [.12, .19], pal: ['#b9b83c', '#d3bb3b', '#97b03a', '#e2c64b'], trunk: { w: .04, col: '#8a6a43', top: -.55, fork: true } },
+  saxaul:     { shape: 'shrub', pal: ['#9fae7c', '#b2bf8c', '#8a986a', '#c6cfa2'], trunk: { col: '#8a7a5a' } },
+  oleaster:   { shape: 'round', n: 8, cy: -.58, sx: .2, sy: .12, r: [.1, .16], pal: ['#a9b995', '#bccaa6', '#92a47e', '#d0dbbc'], trunk: { w: .03, col: '#7b6a52', top: -.5 } },
+  mangrove:   { shape: 'round', n: 10, cy: -.62, sx: .3, sy: .13, r: [.12, .19], pal: ['#2f8d58', '#25774a', '#3ca466', '#1f6a40'], trunk: { w: .03, col: '#5d3f2a', top: -.52 }, roots: 'prop' },
+  avicennia:  { shape: 'round', n: 9, cy: -.52, sx: .3, sy: .11, r: [.12, .18], pal: ['#4a8a56', '#3d7a4a', '#5a9a63', '#2f6a3e'], trunk: { w: .035, col: '#5a4a3a', top: -.4 }, roots: 'pneu' },
+  casuarina:  { shape: 'droop', pal: ['#7fa56a', '#6a9558', '#93b87c'], trunk: { w: .03, col: '#7a6044', top: -.58 } },
+  camphor:    { shape: 'round', n: 12, cy: -.64, sx: .3, sy: .18, r: [.15, .23], pal: ['#2f7f33', '#3b9140', '#49a34b', '#276c2c'], trunk: { w: .07, col: '#6f5238', top: -.5, flare: true } },
+  acacia:     { shape: 'umbrella', pal: ['#6f9a3c', '#85ad46', '#5c8832', '#a0c25a'], trunk: { w: .035, col: '#6b4f35', top: -.5, fork: true }, dots: '#f2d544' },
+  goldenrain: { shape: 'round', n: 11, cy: -.64, sx: .28, sy: .17, r: [.13, .2], pal: ['#e0a032', '#f0c04a', '#d4782b', '#c9503a'], trunk: { w: .05, col: '#7a5c40', top: -.5 } },
+  fir:        { shape: 'conifer', layers: 5, wide: .3, pal: ['#2c5a4a', '#356b57', '#244c3e'], snow: true, trunk: { w: .03, col: '#5a4030' } },
+  taiwania:   { shape: 'conifer', layers: 7, wide: .2, pal: ['#3f7340', '#4c8449', '#33612f'], trunk: { w: .035, col: '#8a4a32' } },
+  juniper:    { shape: 'gnarled', pal: ['#3f6b4a', '#4d7a55', '#355c3f'], trunk: { col: '#6a4a34' } },
+  baldcypress:{ shape: 'conifer', layers: 6, wide: .26, pal: ['#8f9a3e', '#a9a844', '#7e8a34'], trunk: { w: .035, col: '#7a4a30' }, knees: true },
+  willow:     { shape: 'weep', pal: ['#8fbf5a', '#a5d06a', '#7cae4c'], trunk: { w: .05, col: '#6a5440', top: -.55 } },
+  bischofia:  { shape: 'round', n: 12, cy: -.64, sx: .31, sy: .18, r: [.15, .22], pal: ['#3a7f3a', '#4a9348', '#2f6c30', '#b5532f'], trunk: { w: .07, col: '#6a4a34', top: -.5, flare: true } },
+  sakura:     { shape: 'round', n: 11, cy: -.62, sx: .3, sy: .15, r: [.13, .2], pal: ['#ffc2d4', '#ffb0c8', '#ffd5e2', '#f79db8'], trunk: { w: .05, col: '#4a3430', top: -.5, fork: true } },
+  maple:      { shape: 'round', n: 11, cy: -.63, sx: .27, sy: .17, r: [.13, .2], pal: ['#d6452f', '#e8632f', '#c0392b', '#f08a3a'], trunk: { w: .045, col: '#6a5040', top: -.5 } },
+  ginkgo:     { shape: 'oval', n: 11, cy: -.62, sx: .17, sy: .24, r: [.1, .16], pal: ['#f0d048', '#e8c33a', '#f7dc66', '#d9b030'], trunk: { w: .04, col: '#7a6a4a', top: -.5 } }
+};
+const SHAPE_DEF = {
+  round: { n: 10, cy: -.62, sx: .28, sy: .15, r: [.12, .2] },
+  oval: { n: 11, cy: -.62, sx: .17, sy: .24, r: [.1, .16] },
+  umbrella: { n: 9, cy: -.56, sx: .34, sy: .07, r: [.09, .15] },
+  weep: { n: 8, cy: -.62, sx: .26, sy: .09, r: [.11, .16] },
+  shrub: { n: 9, cy: -.28, sx: .28, sy: .07, r: [.08, .12] }
+};
+const hashStr = s => s.split('').reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7);
+const TREE_CACHE = {};
+function treeSpec(sp, seed) {
+  const key = sp + seed; if (TREE_CACHE[key]) return TREE_CACHE[key];
+  const S = SPEC[sp], d = SHAPE_DEF[S.shape] || SHAPE_DEF.round, r = rng(seed * 977 + hashStr(sp));
+  const n = S.n || d.n, cy = S.cy !== undefined ? S.cy : d.cy, sx = S.sx || d.sx, sy = S.sy || d.sy, rr = S.r || d.r, blobs = [];
+  for (let i = 0; i < n; i++) { const a = r() * TAU, dd = Math.sqrt(r()); blobs.push({ x: Math.cos(a) * dd * sx, y: cy + Math.sin(a) * dd * sy, r: lerp(rr[0], rr[1], r()), c: Math.floor(r() * S.pal.length) }); }
+  blobs.sort((a, b) => a.y - b.y);
+  return TREE_CACHE[key] = { blobs };
+}
+function drawTrunk(c, h, t) {
+  const top = t.top || -.5, w = (t.w || .04) * h, fl = t.flare ? w * .9 : 0;
+  c.fillStyle = t.col; c.beginPath(); c.moveTo(-w - fl, 0); c.lineTo(-w * .75, top * h * .4); c.lineTo(-w * .55, top * h); c.lineTo(w * .55, top * h); c.lineTo(w * .75, top * h * .4); c.lineTo(w + fl, 0); c.closePath(); c.fill();
+  if (t.fork) { c.strokeStyle = t.col; c.lineWidth = w * .8; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, top * h * .7); c.lineTo(-.14 * h, (top - .1) * h); c.moveTo(0, top * h * .75); c.lineTo(.14 * h, (top - .08) * h); c.stroke(); }
+}
+function drawBroad(c, sp, S, h, seed) {
+  const spec = treeSpec(sp, seed), pal = S.pal;
+  if (S.roots === 'prop') {
+    c.strokeStyle = '#4a3020'; c.lineWidth = .022 * h; c.lineCap = 'round';
+    [-.27, -.16, -.06, .06, .16, .27].forEach(k => { c.beginPath(); c.moveTo(k * .3 * h, -.24 * h); c.quadraticCurveTo(k * h, -.22 * h, k * 1.05 * h, 0); c.stroke(); });
+  }
+  drawTrunk(c, h, S.trunk);
+  if (S.roots === 'pneu') {
+    c.strokeStyle = '#4a3a2c'; c.lineWidth = .014 * h; c.lineCap = 'round';
+    for (let k = -6; k <= 6; k++) { const x = k * .032 * h; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, -(.03 + ((k * 5 + 17) % 4) * .01) * h); c.stroke(); }
+  }
+  for (const b of spec.blobs) { c.fillStyle = pal[b.c]; circ(c, b.x * h, b.y * h, b.r * h); c.fill(); }
+  c.fillStyle = 'rgba(255,255,255,.2)';
+  for (const b of spec.blobs) { circ(c, b.x * h - b.r * h * .2, b.y * h - b.r * h * .28, b.r * h * .6); c.fill(); }
+  if (S.dots) { c.fillStyle = S.dots; for (const b of spec.blobs) { circ(c, b.x * h + b.r * h * .3, b.y * h - b.r * h * .1, .013 * h); c.fill(); circ(c, b.x * h - b.r * h * .4, b.y * h + b.r * h * .2, .013 * h); c.fill(); } }
+  if (S.shape === 'weep') {
+    const rn = rng(seed * 13 + 5); c.lineCap = 'round'; c.lineWidth = .015 * h;
+    for (let i = 0; i < 24; i++) { const x = (rn() - .5) * .58 * h, y0 = -.6 * h + rn() * .06 * h, len = (.2 + rn() * .22) * h; c.strokeStyle = pal[i % 3]; c.beginPath(); c.moveTo(x, y0); c.quadraticCurveTo(x + (rn() - .5) * .05 * h, y0 + len * .5, x + (rn() - .5) * .03 * h, y0 + len); c.stroke(); }
+  }
+}
+function drawConifer(c, S, h) {
+  const L = S.layers, t = S.trunk;
+  c.fillStyle = t.col; c.fillRect(-t.w * h, -.2 * h, t.w * 2 * h, .2 * h);
+  if (S.knees) { c.fillStyle = '#6a4228'; [[-.16, .045], [-.09, .06], [.1, .05], [.17, .04]].forEach(k => { poly(c, [[k[0] * h - .018 * h, 0], [k[0] * h + .018 * h, 0], [k[0] * h, -k[1] * h]]); c.fill(); }); }
+  const lh = .86 * h / L * 1.55;
+  for (let k = 0; k < L; k++) {
+    const tt = L > 1 ? k / (L - 1) : 0, bw = lerp(S.wide, S.wide * .28, tt) * h, yb = -(.12 + .62 * tt) * h;
+    c.fillStyle = S.pal[k % S.pal.length]; poly(c, [[-bw, yb], [bw, yb], [0, yb - lh]]); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.12)'; poly(c, [[-bw, yb], [0, yb], [0, yb - lh]]); c.fill();
+    if (S.snow) { c.fillStyle = 'rgba(250,252,255,.92)'; poly(c, [[-bw * .62, yb - lh * .38], [bw * .62, yb - lh * .38], [0, yb - lh]]); c.fill(); }
+  }
+}
+function drawGnarled(c, S, h) {
+  c.strokeStyle = S.trunk.col; c.lineCap = 'round'; c.lineWidth = .06 * h;
+  c.beginPath(); c.moveTo(-.02 * h, 0); c.bezierCurveTo(.1 * h, -.12 * h, -.08 * h, -.24 * h, .08 * h, -.4 * h); c.stroke();
+  c.lineWidth = .03 * h; c.beginPath(); c.moveTo(.03 * h, -.22 * h); c.lineTo(.2 * h, -.3 * h); c.stroke();
+  [[.1, -.44, .12], [-.06, -.34, .1], [.22, -.32, .1], [.02, -.54, .1], [.17, -.55, .09], [-.08, -.46, .08]].forEach((b, i) => { c.fillStyle = S.pal[i % 3]; circ(c, b[0] * h, b[1] * h, b[2] * h); c.fill(); });
+  c.fillStyle = 'rgba(255,255,255,.15)'; circ(c, .06 * h, -.5 * h, .06 * h); c.fill();
+}
+function drawDroop(c, S, h, seed) {
+  drawTrunk(c, h, S.trunk);
+  const rn = rng(seed * 17 + 3);
+  for (let i = 0; i < 7; i++) { c.fillStyle = S.pal[i % 3]; circ(c, (rn() - .5) * .4 * h, -.6 * h + (rn() - .5) * .16 * h, (.1 + rn() * .06) * h); c.fill(); }
+  c.lineCap = 'round'; c.lineWidth = .012 * h;
+  for (let i = 0; i < 40; i++) { const x = (rn() - .5) * .46 * h, y0 = -.58 * h + (rn() - .3) * .12 * h, len = (.1 + rn() * .15) * h; c.strokeStyle = S.pal[(i + 1) % 3]; c.beginPath(); c.moveTo(x, y0); c.quadraticCurveTo(x + (rn() - .5) * .03 * h, y0 + len * .6, x + (rn() - .5) * .04 * h, y0 + len); c.stroke(); }
+}
+function drawShrub(c, S, h, seed) {
+  const spec = treeSpec('saxaul', seed); c.strokeStyle = S.trunk.col; c.lineCap = 'round'; c.lineWidth = .02 * h;
+  [[-.2, -.22], [-.06, -.3], [.07, -.28], [.2, -.2]].forEach(p => { c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(p[0] * h * .4, p[1] * h * .5, p[0] * h, p[1] * h); c.stroke(); });
+  for (const b of spec.blobs) { c.fillStyle = S.pal[b.c]; circ(c, b.x * h, b.y * h, b.r * h); c.fill(); }
+  c.fillStyle = 'rgba(255,255,255,.2)'; for (const b of spec.blobs) { circ(c, b.x * h - b.r * h * .2, b.y * h - b.r * h * .3, b.r * h * .55); c.fill(); }
+}
+function drawTree(c, sp, x, y, h, seed, sc, sway) {
+  const S = SPEC[sp];
+  c.save(); c.translate(x, y); c.scale(sc, sc); c.rotate(sway || 0);
+  ell(c, 0, 2, h * .27, h * .05); c.fillStyle = 'rgba(0,0,0,.22)'; c.fill();
+  if (S.shape === 'conifer') drawConifer(c, S, h);
+  else if (S.shape === 'gnarled') drawGnarled(c, S, h);
+  else if (S.shape === 'droop') drawDroop(c, S, h, seed);
+  else if (S.shape === 'shrub') drawShrub(c, S, h, seed);
+  else drawBroad(c, sp, S, h, seed);
+  c.restore();
+}
+function drawSapling(c, x, y, sc, sway, ball, type) {
+  c.save(); c.translate(x, y); c.scale(sc, sc);
+  if (ball) { c.fillStyle = '#7a4e2d'; ell(c, 0, -3, 9, 6); c.fill(); } else { ell(c, 0, 1, 9, 3); c.fillStyle = 'rgba(0,0,0,.2)'; c.fill(); }
+  c.rotate(sway || 0);
+  if (type === 'conifer') {
+    c.fillStyle = '#5d3f2a'; c.fillRect(-1.4, -10, 2.8, 8);
+    c.fillStyle = '#2f6a45'; poly(c, [[-11, -6], [11, -6], [0, -18]]); c.fill();
+    c.fillStyle = '#3a7d52'; poly(c, [[-8.5, -14], [8.5, -14], [0, -26]]); c.fill();
+    c.fillStyle = '#4a9463'; poly(c, [[-6, -22], [6, -22], [0, -36]]); c.fill();
+  } else {
+    c.strokeStyle = '#5aa648'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, -4); c.quadraticCurveTo(1, -18, 0, -32); c.stroke();
+    leaf(c, 0, -22, -PI + .75, 13, '#6dbd55'); leaf(c, 0, -27, -.75, 14, '#7ccc60'); leaf(c, 0, -32, -PI / 2, 11, '#8bd66e');
+  }
+  c.restore();
+}
+function drawSprout(c, x, y, k) {
+  c.save(); c.translate(x, y); ell(c, 0, 1, 7, 2.4); c.fillStyle = 'rgba(0,0,0,.2)'; c.fill();
+  c.strokeStyle = '#6cb352'; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -15 * k); c.stroke();
+  leaf(c, 0, -12 * k, -PI + .6, 9 * k, '#7ccc60'); leaf(c, 0, -13 * k, -.6, 9 * k, '#8bd66e');
+  c.restore();
+}
+function drawPod(c, x, y, w) {
+  c.save(); c.translate(x, y); c.rotate(w || 0);
+  const gd = c.createLinearGradient(-5, 0, 5, 0); gd.addColorStop(0, '#6a9a30'); gd.addColorStop(.5, '#9cc84a'); gd.addColorStop(1, '#6a9a30');
+  c.fillStyle = gd; c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-6, -10, -5.5, -34, -3.5, -42); c.lineTo(3.5, -42); c.bezierCurveTo(5.5, -34, 6, -10, 0, 0); c.closePath(); c.fill();
+  c.fillStyle = '#7a5a2d'; ell(c, 0, -43, 5, 3); c.fill();
+  c.strokeStyle = '#5aa648'; c.lineWidth = 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, -45); c.lineTo(0, -52); c.stroke();
+  leaf(c, 0, -50, -PI + .8, 9, '#7ccc60'); leaf(c, 0, -50, -.8, 9, '#8bd66e');
+  c.restore();
+}
+function drawStake(c, x, gy, h, kick) {
+  c.save(); c.translate(x, gy); c.scale(1 + .05 * kick, 1 - .07 * kick);
+  c.fillStyle = 'rgba(90,60,35,.5)'; ell(c, 0, 1, 9, 3); c.fill();
+  c.fillStyle = '#b9803d'; c.fillRect(-4.5, -h, 9, h);
+  c.fillStyle = '#d9a566'; c.fillRect(-4.5, -h, 3, h);
+  c.fillStyle = '#8a5a2a'; c.fillRect(2.5, -h, 2, h);
+  c.fillStyle = '#e0b27a'; ell(c, 0, -h, 4.5, 2); c.fill();
+  c.restore();
+}
+function drawRope(c, k) {
+  const x1 = STAKE_X - 4, y1 = PY - 10, x2 = PX + 3, y2 = PY - 14, ex = lerp(x1, x2, k), ey = lerp(y1, y2, k);
+  c.strokeStyle = '#ead0a0'; c.lineWidth = 2.4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x1, y1); c.quadraticCurveTo((x1 + ex) / 2, (y1 + ey) / 2 + 7, ex, ey); c.stroke();
+}
+function drawRock(c, x, y, r, seed) {
+  const rn = rng(seed * 31 + 7), pts = [];
+  for (let i = 0; i < 7; i++) { const a = i / 7 * TAU + rn() * .3, rr = r * (.8 + rn() * .35); pts.push([Math.cos(a) * rr, Math.sin(a) * rr * .78]); }
+  c.save(); c.translate(x, y - r * .5);
+  ell(c, 2, r * .55, r * 1.1, r * .3); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill();
+  c.fillStyle = '#8f8c88'; poly(c, pts); c.fill();
+  c.strokeStyle = '#5f5c59'; c.lineWidth = 1.4; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.3)'; ell(c, -r * .25, -r * .3, r * .45, r * .25); c.fill();
+  c.restore();
+}
+
+/* ================= 工人、工具 ================= */
+function drawWorker(c, x, y, dir, wp, walking, kind) {
+  const k = WK[kind || 'worker'], sw = walking ? Math.sin(wp) * 4 : 0;
+  ell(c, x, y + 1, 13, 3.5); c.fillStyle = 'rgba(0,0,0,.25)'; c.fill();
+  c.strokeStyle = k.legs; c.lineWidth = k.legW; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x - 3, y - 26); c.lineTo(x - 4 + sw, y - 3); c.moveTo(x + 3, y - 26); c.lineTo(x + 4 - sw, y - 3); c.stroke();
+  c.fillStyle = '#4a2f1a'; ell(c, x - 4 + sw + dir * 2, y - 1, 5, 3); c.fill(); ell(c, x + 4 - sw + dir * 2, y - 1, 5, 3); c.fill();
+  c.fillStyle = k.vest; rrect(c, x - 9, y - 48, 18, 26, 5); c.fill();
+  c.fillStyle = k.stripe; c.fillRect(x - 9, y - 38, 18, 3.5);
+  c.fillStyle = '#f2c490'; circ(c, x + dir, y - 56, 8); c.fill();
+  c.fillStyle = k.hat; c.beginPath(); c.arc(x + dir, y - 58, 9, PI, 0); c.closePath(); c.fill(); c.fillRect(x + dir - 11, y - 58, 22, 3);
+  c.fillStyle = '#2c1b10'; circ(c, x + dir * 5, y - 55, 1.2); c.fill();
+}
+function drawArm(c, sx, sy, hx, hy, kind) {
+  c.strokeStyle = WK[kind || 'worker'].vest; c.lineWidth = 5.5; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx, sy); c.lineTo(hx, hy); c.stroke();
+  c.fillStyle = '#f2c490'; circ(c, hx, hy, 3.4); c.fill();
+}
+function drawShovel(c, hx, hy, ang) {
+  c.save(); c.translate(hx, hy); c.rotate(-ang);
+  c.strokeStyle = '#9b6a3c'; c.lineWidth = 3.5; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, -8); c.lineTo(0, 32); c.stroke();
+  c.fillStyle = '#9aa3ad'; c.beginPath(); c.moveTo(-6, 30); c.lineTo(6, 30); c.lineTo(5, 40); c.lineTo(0, 44); c.lineTo(-5, 40); c.closePath(); c.fill();
+  c.strokeStyle = '#6b747d'; c.lineWidth = 1; c.stroke();
+  c.restore();
+}
+function drawMallet(c, hx, hy, phi) {
+  c.save(); c.translate(hx, hy); c.rotate(phi);
+  c.strokeStyle = '#9b6a3c'; c.lineWidth = 3.6; c.lineCap = 'round'; c.beginPath(); c.moveTo(-6, 0); c.lineTo(28, 0); c.stroke();
+  c.fillStyle = '#7a4b24'; rrect(c, 22, -9, 12, 18, 3); c.fill();
+  c.fillStyle = '#5a3418'; c.fillRect(24, -9, 2.2, 18); c.fillRect(30, -9, 2.2, 18);
+  c.restore();
+}
+function drawCan(c, px, py, a) {
+  c.save(); c.translate(px, py); c.rotate(a);
+  c.strokeStyle = '#5f87a6'; c.lineWidth = 4; c.lineCap = 'round'; c.beginPath(); c.arc(16, 0, 13, -PI / 2, PI / 2); c.stroke();
+  c.strokeStyle = '#7fa3c0'; c.lineWidth = 5; c.beginPath(); c.moveTo(-20, 4); c.lineTo(-38, -10); c.stroke();
+  c.fillStyle = '#5f87a6'; ell(c, -40, -11, 4, 6); c.fill();
+  c.fillStyle = '#9bbbd4'; rrect(c, -22, -12, 40, 26, 5); c.fill(); c.strokeStyle = '#5f87a6'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#7fa3c0'; c.fillRect(-22, -2, 40, 5);
+  c.restore();
+}
+
+/* ================= 格子：粒子 ================= */
+function emit(cell, x, y, n, o) {
+  for (let i = 0; i < n; i++) {
+    const ang = o.a0 !== undefined ? o.a0 + (o.a1 - o.a0) * Math.random() : Math.random() * TAU;
+    const sp = o.s0 + (o.s1 - o.s0) * Math.random();
+    cell.parts.push({
+      x: x + (o.jx || 0) * (Math.random() - .5), y: y + (o.jy || 0) * (Math.random() - .5),
+      vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, g: o.g || 0,
+      life: o.life * (.7 + Math.random() * .6), max: o.life, size: o.size * (.7 + Math.random() * .6),
+      col: o.cols[(Math.random() * o.cols.length) | 0], kind: o.kind || 'dot', rot: Math.random() * TAU, vr: (Math.random() - .5) * 6
+    });
+  }
+}
+function updateParts(cell, dt) {
+  const P = cell.parts;
+  for (let i = P.length - 1; i >= 0; i--) {
+    const p = P[i]; p.life -= dt;
+    if (p.life <= 0) { P.splice(i, 1); continue; }
+    p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    if (p.kind === 'drop' && p.y >= PY + 4) {
+      P.splice(i, 1);
+      for (let k = 0; k < 2; k++) P.push({ x: p.x, y: PY + 4, vx: (Math.random() - .5) * 50, vy: -30 - Math.random() * 30, g: 300, life: .35, max: .35, size: 1.4, col: '#7fd0f5', kind: 'dot', rot: 0, vr: 0 });
+    }
+  }
+}
+function drawParts(c, cell) {
+  for (const p of cell.parts) {
+    const a = clamp(p.life / p.max, 0, 1);
+    c.globalAlpha = Math.min(1, a * 1.6); c.fillStyle = p.col;
+    if (p.kind === 'leaf') { c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.beginPath(); c.ellipse(0, 0, p.size * 1.6, p.size * .8, 0, 0, TAU); c.fill(); c.restore(); }
+    else if (p.kind === 'spark') {
+      c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.beginPath();
+      for (let i = 0; i < 4; i++) { c.rotate(PI / 2); c.moveTo(0, 0); c.lineTo(p.size * .35, p.size * .35); c.lineTo(0, p.size * 1.6); c.lineTo(-p.size * .35, p.size * .35); }
+      c.fill(); c.restore();
+    } else { circ(c, p.x, p.y, p.size * (p.kind === 'drop' ? 1 : a * .6 + .4)); c.fill(); }
+  }
+  c.globalAlpha = 1;
+}
+
+/* ================= 格子：每個步驟的動畫 ================= */
+const A = {};
+const dirt = { cols: ['#6a4527', '#8b5a34', '#a77746'], g: 380, life: .7, size: 2.6 };
+const mud = { cols: ['#4e3a28', '#6b523a', '#7a6a50'], g: 380, life: .7, size: 2.8 };
+
+/* 草方格 */
+A.straw = {
+  dur: .9,
+  update(cell, a, p) {
+    cell.v.grid = easeOut(clamp((p - .12) / .8, 0, 1));
+    if (!a.f && p > .25) { a.f = 1; emit(cell, PX, PY + 4, 10, { a0: -3, a1: -.1, s0: 30, s1: 70, jx: 40, jy: 10, cols: ['#e2b64a', '#c99a2e'], g: 200, life: .6, size: 2.4 }); }
+  },
+  draw(c, cell, a, p) { if (p < .3) { const q = p / .3; drawIcon(c, 'straw', PX, lerp(PY - 130, PY - 8, easeIn(q)), 22 * (1 - .25 * q)); } }
+};
+
+/* 工人挖坑（海岸、濕地挖出來的是爛泥） */
+function digPose(p) {
+  const enter = clamp(p / .15, 0, 1), leave = clamp((p - .88) / .12, 0, 1);
+  const wx = lerp(-34, PX - 44, easeOut(enter)) - easeIn(leave) * 70;
+  const q = clamp((p - .15) / .72, 0, 1), ph = q * 3, fr = q >= 1 ? 0 : ph % 1;
+  const deg = (q <= 0 || q >= 1) ? 20 : (fr < .62 ? lerp(25, -55, easeInOut(fr / .62)) : lerp(-55, 25, easeIn((fr - .62) / .38)));
+  return { wx, alpha: 1 - leave, ang: deg * PI / 180, walking: enter < 1 || leave > 0, wp: p * 34, ph };
+}
+A.dig = {
+  dur: 1.4,
+  update(cell, a, p) {
+    cell.v.hole = easeInOut(clamp((p - .12) / .74, 0, 1));
+    const o = digPose(p), k = p > .15 && p < .88 ? Math.min(3, Math.floor(o.ph)) : (a.k || 0);
+    if (k > (a.k || 0)) { a.k = k; emit(cell, PX - 8, PY + 2, 8, Object.assign({ a0: -PI * .95, a1: -PI * .05, s0: 40, s1: 110, jx: 14 }, (cell.flow.terrain === 'coast' || cell.flow.terrain === 'wetland') ? mud : dirt)); }
+  },
+  draw(c, cell, a, p) {
+    const o = digPose(p); if (o.alpha <= 0) return;
+    const kind = 'worker', y = PY + 2, x = o.wx, hx = x + 9, hy = y - 38;
+    c.save(); c.globalAlpha = o.alpha;
+    drawWorker(c, x, y, 1, o.wp, o.walking, kind);
+    drawShovel(c, hx, hy, o.ang);
+    drawArm(c, x + 2, y - 44, hx, hy, kind);
+    c.restore();
+  }
+};
+
+/* 放樹苗（闊葉樹苗、針葉樹苗共用） */
+A.sapling = {
+  dur: .8,
+  update(cell, a, p) {
+    if (p >= .5 && !a.l) { a.l = 1; cell.v.sapling = 1; cell.v.sType = a.item === 'conifer' ? 'conifer' : 'broad'; emit(cell, PX, PY + 4, 9, Object.assign({ a0: -PI * .95, a1: -PI * .05, s0: 30, s1: 80, jx: 20 }, dirt)); }
+    cell.v.filled = easeOut(clamp((p - .5) / .5, 0, 1));
+  },
+  draw(c, cell, a, p) { if (p < .5) drawSapling(c, PX, lerp(PY - 150, PY + 3, easeIn(p / .5)), 1, 0, true, a.item === 'conifer' ? 'conifer' : 'broad'); }
+};
+
+/* 澆水 */
+const CAN_TIP = [-40, -10], CAN_TILT = 36 * PI / 180, CAN_BASE = [PX + 8, PY - 70];
+function canPose(p) {
+  const e = clamp(p / .22, 0, 1), l = clamp((p - .85) / .15, 0, 1);
+  const tilt = CAN_TILT * easeOut(e) * (1 - l), a = -CAN_TILT;
+  const fx = CAN_TIP[0] * Math.cos(a) - CAN_TIP[1] * Math.sin(a), fy = CAN_TIP[0] * Math.sin(a) + CAN_TIP[1] * Math.cos(a);
+  const ox = (1 - easeOut(e)) * 110 + easeIn(l) * 90, oy = -(1 - easeOut(e)) * 70 - easeIn(l) * 60;
+  const px = CAN_BASE[0] - fx + ox, py = CAN_BASE[1] - fy + oy, ra = -tilt;
+  const tx = px + CAN_TIP[0] * Math.cos(ra) - CAN_TIP[1] * Math.sin(ra), ty = py + CAN_TIP[0] * Math.sin(ra) + CAN_TIP[1] * Math.cos(ra);
+  return { px, py, ra, tx, ty, alpha: 1 - l };
+}
+A.water = {
+  dur: 1.3,
+  update(cell, a, p, dt) {
+    cell.v.wet = easeOut(clamp((p - .25) / .6, 0, 1));
+    if (p > .24 && p < .85) {
+      a.acc = (a.acc || 0) + dt * 70; const o = canPose(p);
+      while (a.acc >= 1) { a.acc--; cell.parts.push({ x: o.tx + (Math.random() - .5) * 6, y: o.ty, vx: (Math.random() - .5) * 10 - 6, vy: 10, g: 480, life: 1.2, max: 1.2, size: 2.3, col: '#4cb8ee', kind: 'drop', rot: 0, vr: 0 }); }
+    }
+  },
+  draw(c, cell, a, p) { const o = canPose(p); if (o.alpha <= 0) return; c.save(); c.globalAlpha = o.alpha; drawCan(c, o.px, o.py, o.ra); c.restore(); }
+};
+
+/* 播種：胎生苗（紅樹）插進泥裡；一般種子落下後冒出新芽 */
+A.seed = {
+  dur: .8,
+  update(cell, a, p) {
+    const pod = (cell.flow.seedKind || 'nut') === 'pod', q = clamp((p - .55) / .45, 0, 1);
+    if (p >= .55 && !a.l) { a.l = 1; if (pod) cell.v.pod = 1; emit(cell, PX, PY + 5, 9, { a0: -PI * .95, a1: -PI * .05, s0: 25, s1: 70, jx: 12, cols: ['#6a4d34', '#8a6a4c'], g: 320, life: .6, size: 2.6 }); }
+    if (pod) cell.v.pw = p > .55 ? Math.sin(q * 20) * .16 * (1 - q) : 0; else cell.v.sprout = easeOut(q);
+    cell.v.filled = easeOut(q);
+  },
+  draw(c, cell, a, p) {
+    const pod = (cell.flow.seedKind || 'nut') === 'pod';
+    if (p < .55) { const y = lerp(PY - 150, PY + 3, easeIn(p / .55)); if (pod) drawPod(c, PX, y, 0); else drawIcon(c, 'seed', PX, y - 10, 11); }
+    else { const q = (p - .55) / .45; c.strokeStyle = 'rgba(255,255,255,' + (.7 * (1 - q)) + ')'; c.lineWidth = 2; ell(c, PX, PY + 5, 6 + q * 30, (6 + q * 30) * .34); c.stroke(); }
+  }
+};
+
+/* 打木樁（工人拿木槌，三下打入） */
+const HITS = [.42, .62, .82];
+const stakeD = p => HITS.reduce((s, t) => s + clamp((p - t) / .05, 0, 1) / 3, 0);
+function malletR(p) {
+  let r = 1;
+  for (const t of HITS) { if (p >= t - .1 && p <= t) r = 1 - easeIn((p - (t - .1)) / .1); else if (p > t && p <= t + .08) r = Math.min(r, easeOut((p - t) / .08)); }
+  return r;
+}
+A.stake = {
+  dur: 1.4,
+  update(cell, a, p) {
+    cell.v.stakeOn = p >= .18 ? 1 : 0; cell.v.stakeD = stakeD(p); cell.v.rope = clamp((p - .88) / .12, 0, 1);
+    const hi = HITS.filter(t => p >= t).length;
+    if (hi > (a.h || 0)) { a.h = hi; cell.v.kick = 1; emit(cell, STAKE_X, PY + 3, 7, Object.assign({ a0: -PI * .95, a1: -PI * .05, s0: 30, s1: 80, jx: 10 }, dirt)); }
+  },
+  draw(c, cell, a, p) {
+    if (p < .18) drawStake(c, STAKE_X, PY + 4 + lerp(-120, 0, easeIn(p / .18)), 56, 0);
+    const enter = clamp(p / .15, 0, 1), leave = clamp((p - .9) / .1, 0, 1);
+    const wx = lerp(300, PX + 62, easeOut(enter)) + easeIn(leave) * 70, y = PY + 2, hx = wx - 8, hy = y - 44;
+    c.save(); c.globalAlpha = 1 - leave;
+    drawWorker(c, wx, y, -1, p * 34, enter < 1 || leave > 0, 'worker');
+    const topY = PY + 4 - lerp(56, 40, stakeD(p)), hitA = Math.atan2((topY - 6) - hy, STAKE_X - hx);
+    drawMallet(c, hx, hy, lerp(hitA, -PI / 2, malletR(p)));
+    drawArm(c, wx - 2, y - 44, hx, hy, 'worker');
+    c.restore();
+  }
+};
+
+/* 砌石 */
+A.rock = {
+  dur: 1.0,
+  update(cell, a, p) {
+    const n = ROCKS.filter((r, i) => p >= i * .17 + .3).length;
+    if (n > cell.v.rocks) { const r = ROCKS[n - 1]; cell.v.rocks = n; cell.shake = Math.max(cell.shake, .25); emit(cell, PX + r[0], PY + 4 + r[1], 8, { a0: -PI * .95, a1: -PI * .05, s0: 25, s1: 70, jx: 16, cols: ['#b8aea0', '#8f8c88'], g: 260, life: .5, size: 2.4 }); }
+  },
+  draw(c, cell, a, p) {
+    ROCKS.forEach((r, i) => { const q = (p - i * .17) / .3; if (q > 0 && q < 1) drawRock(c, PX + r[0], PY + 4 + r[1] + lerp(-140, 0, easeIn(q)), r[2], i + cell.seed); });
+  }
+};
+
+/* 長成大樹、慶祝、淡出 */
+A.grow = {
+  dur: 1.2,
+  update(cell, a, p, dt) {
+    cell.v.grow = Math.max(.001, p);
+    a.sp = (a.sp || 0) + dt * 40;
+    while (a.sp >= 1) { a.sp--; emit(cell, PX + (Math.random() - .5) * 90, PY - 30 - Math.random() * 100, 1, { s0: 5, s1: 25, g: -10, life: .7, size: 3.2, cols: ['#fff6b0', '#ffffff', '#ffe27a'], kind: 'spark' }); }
+  },
+  draw(c, cell, a, p) { c.strokeStyle = 'rgba(255,255,255,' + (.85 * (1 - p)) + ')'; c.lineWidth = 3; const rr = 20 + p * 80; ell(c, PX, PY + 4, rr, rr * .32); c.stroke(); },
+  end(cell) { onTreeDone(cell); }
+};
+A.hold = {
+  dur: .55,
+  update(cell, a) {
+    cell.v.grow = 1;
+    if (!a.f) { a.f = 1; emit(cell, 130, -6, 24, { a0: PI * .2, a1: PI * .8, s0: 20, s1: 80, jx: 240, g: 90, life: 1.5, size: 3, cols: ['#8bd66e', '#f7d154', '#ff9db0', '#ffffff', '#5fbf55'], kind: 'leaf' }); }
+  }
+};
+A.reset = {
+  dur: .5,
+  update(cell, a, p) { cell.v.grow = 1; cell.v.fade = 1 - easeInOut(p); },
+  end(cell) { resetCell(cell); assignNext(cell); }
+};
+
+function onTreeDone(cell) {
+  const f = cell.flow; if (!f) return;
+  trees++; plantedList.push(f); const mult = multOf(), gain = TREE_PTS * mult; score += gain;
+  addForest(f.sp);
+  popup(cell.x + cell.w / 2, cell.y + cell.h * .22, f.tree + ' +' + gain, '#fff3a8', 22);
+  SFX.tree(); updatePips(true);
+  if (trees >= goal && !winAt) winAt = T + 1.8;
+}
+
+function updateCell(cell, dt) {
+  cell.shake = Math.max(0, cell.shake - dt * 3); cell.flash = Math.max(0, cell.flash - dt * 3); cell.intro = Math.max(0, cell.intro - dt * 2.2);
+  cell.v.kick = Math.max(0, (cell.v.kick || 0) - dt * 8);
+  updateParts(cell, dt);
+  if (!cell.flow) return;
+  if (!cell.cur && cell.q.length) { const e = cell.q.shift(); cell.cur = { name: e.name, item: e.item, t: 0, dur: A[e.name].dur }; }
+  const a = cell.cur; if (!a) return;
+  a.t += dt; const p = clamp(a.t / a.dur, 0, 1);
+  A[a.name].update(cell, a, p, dt);
+  if (a.t >= a.dur) { const fin = A[a.name].end; cell.cur = null; if (fin) fin(cell); }
+}
+
+/* ================= 格子：六種地形 ================= */
+function sunDisc(c, x, y, r, col) {
+  const gl = c.createRadialGradient(x, y, r * .3, x, y, r * 3); gl.addColorStop(0, rgb(col, .55)); gl.addColorStop(1, rgb(col, 0));
+  c.fillStyle = gl; c.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+  c.fillStyle = rgb(col); circ(c, x, y, r); c.fill();
+}
+function skyGrad(c, y1, top, bot) {
+  const s = c.createLinearGradient(0, 0, 0, y1);
+  s.addColorStop(0, rgb(mixc(top, [120, 192, 236], g * .7))); s.addColorStop(1, rgb(mixc(bot, [210, 238, 250], g * .7)));
+  c.fillStyle = s; c.fillRect(0, 0, 260, y1);
+}
+function terrain(c, id) {
+  if (id === 'desert') {
+    skyGrad(c, 150, [244, 122, 62], [255, 206, 142]);
+    sunDisc(c, 205, 56, 17, [255, 238, 190]);
+    c.fillStyle = '#e6bd7c'; c.beginPath(); c.moveTo(0, 122); c.bezierCurveTo(50, 100, 100, 128, 160, 112); c.bezierCurveTo(205, 100, 235, 120, 260, 110); c.lineTo(260, 160); c.lineTo(0, 160); c.fill();
+    const gr = c.createLinearGradient(0, 130, 0, 300); gr.addColorStop(0, '#efcc8c'); gr.addColorStop(1, '#d2a05c');
+    c.fillStyle = gr; c.beginPath(); c.moveTo(0, 142); c.bezierCurveTo(60, 128, 150, 150, 260, 134); c.lineTo(260, 300); c.lineTo(0, 300); c.fill();
+    c.strokeStyle = 'rgba(140,90,40,.22)'; c.lineWidth = 1.6;
+    for (let i = 0; i < 7; i++) { const y = 160 + i * 17; c.beginPath(); c.moveTo(10 + (i % 2) * 14, y); c.bezierCurveTo(60, y - 5, 110, y + 6, 160 + (i % 3) * 10, y - 2); c.stroke(); }
+  } else if (id === 'coast') {
+    skyGrad(c, 120, [250, 160, 96], [255, 214, 160]);
+    sunDisc(c, 60, 98, 15, [255, 236, 190]);
+    const sea = c.createLinearGradient(0, 100, 0, 150); sea.addColorStop(0, '#4f9cc4'); sea.addColorStop(1, '#78bcd6'); c.fillStyle = sea; c.fillRect(0, 100, 260, 50);
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5;
+    for (let k = 0; k < 4; k++) { const y = 108 + k * 10; c.beginPath(); for (let x = 0; x <= 260; x += 10) { const yy = y + Math.sin(x * .08 + T * 2 + k) * 1.6; if (x) c.lineTo(x, yy); else c.moveTo(x, yy); } c.stroke(); }
+    const md = c.createLinearGradient(0, 140, 0, 300); md.addColorStop(0, '#8a6a4c'); md.addColorStop(1, '#5f4630');
+    c.fillStyle = md; c.beginPath(); c.moveTo(0, 148); c.bezierCurveTo(70, 138, 170, 156, 260, 142); c.lineTo(260, 300); c.lineTo(0, 300); c.fill();
+    c.fillStyle = 'rgba(120,185,215,.45)'; ell(c, 52, 196, 26, 6); c.fill(); ell(c, 206, 226, 30, 7); c.fill(); ell(c, 150, 172, 18, 4); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.25)'; ell(c, 46, 194, 10, 1.8); c.fill(); ell(c, 200, 224, 12, 2); c.fill();
+  } else if (id === 'hill') {
+    skyGrad(c, 140, [236, 140, 96], [252, 206, 160]);
+    sunDisc(c, 48, 58, 15, [255, 236, 190]);
+    c.fillStyle = '#b58a86'; poly(c, [[0, 118], [50, 86], [92, 112], [150, 70], [210, 108], [260, 92], [260, 160], [0, 160]]); c.fill();
+    c.fillStyle = '#9d7a6a'; poly(c, [[0, 136], [70, 108], [130, 134], [200, 116], [260, 138], [260, 170], [0, 170]]); c.fill();
+    const sg = c.createLinearGradient(0, 140, 0, 300); sg.addColorStop(0, '#b79a6a'); sg.addColorStop(1, '#8f7550');
+    c.fillStyle = sg; c.beginPath(); c.moveTo(0, 160); c.bezierCurveTo(70, 138, 170, 170, 260, 150); c.lineTo(260, 300); c.lineTo(0, 300); c.fill();
+    c.fillStyle = 'rgba(60,45,30,.35)';
+    [[30, 200, 3], [70, 236, 2.4], [200, 190, 3], [225, 240, 2.6], [110, 168, 2], [170, 252, 2.4]].forEach(q => { ell(c, q[0], q[1], q[2] * 1.6, q[2]); c.fill(); });
+  } else if (id === 'alpine') {
+    skyGrad(c, 150, [206, 138, 140], [246, 224, 210]);
+    sunDisc(c, 208, 50, 13, [255, 242, 214]);
+    c.fillStyle = '#8c97b3'; poly(c, [[0, 122], [38, 80], [76, 114], [128, 54], [188, 110], [228, 84], [260, 114], [260, 160], [0, 160]]); c.fill();
+    c.fillStyle = '#f5f8fc';
+    [[[128, 54], [114, 78], [124, 72], [132, 80], [140, 70], [146, 78]], [[38, 80], [28, 96], [38, 91], [46, 98]], [[228, 84], [218, 100], [228, 95], [238, 102]]].forEach(pg => { poly(c, pg); c.fill(); });
+    c.fillStyle = '#b4bccb'; poly(c, [[0, 138], [60, 112], [120, 136], [200, 116], [260, 140], [260, 172], [0, 172]]); c.fill();
+    const sg = c.createLinearGradient(0, 140, 0, 300); sg.addColorStop(0, '#f2f6fb'); sg.addColorStop(1, '#cdd7e6');
+    c.fillStyle = sg; c.beginPath(); c.moveTo(0, 162); c.bezierCurveTo(70, 142, 170, 172, 260, 152); c.lineTo(260, 300); c.lineTo(0, 300); c.fill();
+    c.fillStyle = 'rgba(110,125,150,.28)'; [[34, 214, 22, 4], [214, 232, 26, 5], [96, 258, 20, 3.5], [170, 184, 16, 3]].forEach(q => { ell(c, q[0], q[1], q[2], q[3]); c.fill(); });
+    c.fillStyle = 'rgba(70,70,80,.45)'; [[50, 196, 3], [226, 204, 3.4], [188, 250, 2.6]].forEach(q => { ell(c, q[0], q[1], q[2] * 1.6, q[2]); c.fill(); });
+  } else if (id === 'wetland') {
+    skyGrad(c, 128, [238, 148, 104], [255, 212, 164]);
+    sunDisc(c, 50, 92, 13, [255, 236, 190]);
+    c.strokeStyle = '#8a8a4e'; c.lineWidth = 1.6; c.lineCap = 'round';
+    for (let x = 4; x < 260; x += 7) { const hh = 10 + ((x * 13) % 9); c.beginPath(); c.moveTo(x, 130); c.lineTo(x + ((x % 3) - 1) * 2, 130 - hh); c.stroke(); }
+    const pd = c.createLinearGradient(0, 128, 0, 188); pd.addColorStop(0, '#7da596'); pd.addColorStop(1, '#a3c4b2'); c.fillStyle = pd; c.fillRect(0, 128, 260, 60);
+    c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.3;
+    for (let k = 0; k < 3; k++) { const y = 140 + k * 14; c.beginPath(); for (let x = 0; x <= 260; x += 10) { const yy = y + Math.sin(x * .09 + T * 1.6 + k * 2) * 1.4; if (x) c.lineTo(x, yy); else c.moveTo(x, yy); } c.stroke(); }
+    c.fillStyle = '#5f8f4a'; [[40, 150, 10], [96, 168, 8], [200, 150, 11], [232, 172, 9]].forEach(q => { ell(c, q[0], q[1], q[2], q[2] * .38); c.fill(); });
+    c.fillStyle = '#f6b9cb'; [[96, 165], [200, 147]].forEach(q => { circ(c, q[0], q[1], 2.6); c.fill(); });
+    const md = c.createLinearGradient(0, 176, 0, 300); md.addColorStop(0, '#7a6a46'); md.addColorStop(1, '#4f452d');
+    c.fillStyle = md; c.beginPath(); c.moveTo(0, 186); c.bezierCurveTo(70, 176, 170, 194, 260, 182); c.lineTo(260, 300); c.lineTo(0, 300); c.fill();
+    c.fillStyle = 'rgba(110,160,140,.4)'; ell(c, 56, 236, 24, 5); c.fill(); ell(c, 206, 226, 28, 6); c.fill();
+    [[18, 226], [32, 232], [236, 220], [248, 228]].forEach(q => { c.strokeStyle = '#7d8548'; c.lineWidth = 1.8; for (let t = -1; t <= 1; t++) { c.beginPath(); c.moveTo(q[0] + t * 3, q[1]); c.lineTo(q[0] + t * 5, q[1] - 34 - (t + 1) * 4); c.stroke(); } c.fillStyle = '#6a4a2a'; ell(c, q[0], q[1] - 36, 2.4, 6); c.fill(); });
+  } else {
+    skyGrad(c, 135, [240, 144, 100], [255, 210, 166]);
+    c.fillStyle = '#a58e8a';
+    [[6, 96, 26], [38, 84, 22], [66, 104, 30], [100, 88, 24], [130, 100, 28], [164, 80, 26], [196, 98, 30], [230, 90, 26]].forEach(b => c.fillRect(b[0], b[1], b[2], 138 - b[1]));
+    c.fillStyle = 'rgba(255,236,190,.55)';
+    for (let i = 0; i < 26; i++) c.fillRect(12 + (i * 37) % 236, 92 + (i * 11) % 36, 4, 5);
+    c.fillStyle = rgb(mixc([140, 130, 70], [78, 130, 64], g)); c.fillRect(0, 128, 260, 14);
+    const lg = c.createLinearGradient(0, 138, 0, 300); lg.addColorStop(0, rgb(mixc([200, 180, 100], [146, 198, 98], g))); lg.addColorStop(1, rgb(mixc([164, 142, 74], [96, 160, 72], g)));
+    c.fillStyle = lg; c.fillRect(0, 140, 260, 160);
+    c.fillStyle = '#d4ccc0'; poly(c, [[0, 244], [260, 198], [260, 224], [0, 280]]); c.fill();
+    c.strokeStyle = 'rgba(120,110,100,.35)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(0, 262); c.lineTo(260, 211); c.stroke();
+    c.fillStyle = '#8a6a43'; c.fillRect(204, 180, 34, 5); c.fillRect(206, 185, 3, 8); c.fillRect(233, 185, 3, 8); c.fillRect(204, 170, 34, 4);
+  }
+}
+
+function drawGrid(c, k) {
+  const x0 = PX - 78, x1 = PX + 78, y0 = PY - 30, y1 = PY + 38, L = [];
+  for (let i = 0; i < 4; i++) { const x = lerp(x0, x1, i / 3); L.push([x, y0, x, y1]); }
+  for (let j = 0; j < 4; j++) { const y = lerp(y0, y1, j / 3); L.push([x0, y, x1, y]); }
+  c.lineCap = 'round';
+  L.forEach((l, i) => {
+    const p = clamp(k * 1.9 - i * .13, 0, 1); if (p <= 0) return;
+    const ex = lerp(l[0], l[2], p), ey = lerp(l[1], l[3], p);
+    c.strokeStyle = '#a97c2a'; c.lineWidth = 5.4; c.beginPath(); c.moveTo(l[0], l[1]); c.lineTo(ex, ey); c.stroke();
+    c.strokeStyle = '#e8c25a'; c.lineWidth = 3.4; c.beginPath(); c.moveTo(l[0], l[1] - .6); c.lineTo(ex, ey - .6); c.stroke();
+  });
+  if (k > .85) {
+    c.strokeStyle = '#d9ae45'; c.lineWidth = 1.2;
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { const x = lerp(x0, x1, i / 3), y = lerp(y0, y1, j / 3); for (let t = -1; t <= 1; t++) { c.beginPath(); c.moveTo(x, y); c.lineTo(x + t * 3, y - 5); c.stroke(); } }
+  }
+}
+function drawHole(c, h) {
+  c.fillStyle = '#8a5a34'; ell(c, PX, PY + 4, 26 * h + 3, 9.5 * h + 1.2); c.fill();
+  c.fillStyle = '#2a180c'; ell(c, PX, PY + 4.5, 26 * h, 9.5 * h); c.fill();
+  c.fillStyle = '#46291a'; ell(c, PX, PY + 7, 20 * h, 5 * h); c.fill();
+}
+function drawPlants(c, cell) {
+  const v = cell.v, f = cell.flow, a = cell.cur;
+  c.save(); c.globalAlpha = v.fade;
+  if (v.wet > 0) { c.fillStyle = 'rgba(60,32,16,' + (.3 * v.wet) + ')'; ell(c, PX, PY + 4, 50 * v.wet, 16 * v.wet); c.fill(); }
+  if (v.grid > 0) drawGrid(c, v.grid);
+  const hr = v.hole * (1 - .92 * v.filled);
+  if (hr > .02) drawHole(c, hr);
+  if (v.filled > 0 && v.hole > 0) {
+    c.fillStyle = 'rgba(138,92,56,' + v.filled + ')'; ell(c, PX, PY + 3, 24, 8.5); c.fill();
+    c.fillStyle = 'rgba(176,126,82,' + (.8 * v.filled) + ')'; ell(c, PX - 3, PY + 1, 15, 4.6); c.fill();
+  }
+  if (v.hole > 0) { c.fillStyle = '#9a6a3f'; ell(c, PX + 42, PY + 3, 13 * v.hole + 1, 5.5 * v.hole + .5); c.fill(); c.fillStyle = '#b07f50'; ell(c, PX + 40, PY + 1, 8 * v.hole, 3 * v.hole); c.fill(); }
+  for (let i = 0; i < v.rocks; i++) { const r = ROCKS[i]; drawRock(c, PX + r[0], PY + 4 + r[1], r[2], i + cell.seed); }
+  if (v.grow > 0) drawTree(c, f.sp, PX, PY + 4, 150, cell.seed, .2 + .8 * elastic(Math.min(1, v.grow)), Math.sin(T * 1.6) * .012);
+  else if (v.sapling) drawSapling(c, PX, PY + 3, 1, Math.sin(T * 2.2) * .05, false, v.sType);
+  else if (v.pod) drawPod(c, PX, PY + 3, v.pw);
+  else if (v.sprout > 0) drawSprout(c, PX, PY + 3, v.sprout);
+  if (v.stakeOn) { drawStake(c, STAKE_X, PY + 4, lerp(56, 40, v.stakeD), v.kick); if (v.rope > 0) drawRope(c, v.rope); }
+  c.restore();
+  if (a && A[a.name].draw) A[a.name].draw(c, cell, a, clamp(a.t / a.dur, 0, 1));
+  drawParts(c, cell);
+}
+function drawChips(c, cell) {
+  const st = cell.flow.steps, n = st.length, gap = 42, w = n * gap + 8, x0 = 130 - w / 2;
+  c.fillStyle = 'rgba(30,16,8,.5)'; rrect(c, x0, 6, w, 44, 12); c.fill();
+  for (let i = 0; i < n; i++) {
+    const cx = x0 + 4 + gap * i + gap / 2, cy = 28, done = i < cell.step, next = i === cell.step && !cell.locked;
+    c.save(); c.globalAlpha = done ? .55 : next ? 1 : .66;
+    c.fillStyle = '#fff3da'; circ(c, cx, cy, 16); c.fill(); drawIcon(c, st[i].item, cx, cy, 12);
+    c.restore();
+    if (done) {
+      c.fillStyle = 'rgba(60,160,80,.8)'; circ(c, cx, cy, 16); c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 3.4; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(cx - 6, cy + .5); c.lineTo(cx - 1.5, cy + 5); c.lineTo(cx + 7, cy - 5); c.stroke();
+    }
+    if (next) { const pu = .5 + .5 * Math.sin(T * 6); c.strokeStyle = 'rgba(255,225,120,' + (.6 + .4 * pu) + ')'; c.lineWidth = 3; circ(c, cx, cy, 18 + pu * 2); c.stroke(); }
+  }
+}
+function drawBanner(c, cell) {
+  const f = cell.flow, n = f.steps.length, done = cell.step >= n;
+  const f1 = Math.max(17, 13 / cellS), f2 = Math.max(13, 11 / cellS), bh = f1 + f2 + 18, top = 300 - bh;
+  const y1 = top + 8 + f1 / 2, y2 = top + 8 + f1 + 4 + f2 / 2;
+  c.fillStyle = 'rgba(52,30,16,.86)'; c.fillRect(0, top, 260, bh);
+  c.fillStyle = '#e9b46a'; c.fillRect(0, top, 260, 2);
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.fillStyle = '#fff4dc'; c.font = '700 ' + f1 + 'px ' + FONT_D; c.fillText(f.env + '・' + f.tree, 10, y1);
+  c.font = '500 ' + f2 + 'px ' + FONT_B;
+  c.fillStyle = done ? '#9be08a' : '#ffd78a';
+  c.fillText(done ? (cell.v.grow >= 1 ? '種好了！' : '生長中…') : '下一步：' + f.steps[cell.step].text, 10, y2);
+  c.textAlign = 'right'; c.fillStyle = 'rgba(255,244,220,.85)'; c.font = '700 ' + f1 * .8 + 'px ' + FONT_B;
+  c.fillText(Math.min(cell.step, n) + '/' + n, 250, y1);
+}
+function drawEmptyCell(cell) {
+  const c = ctx;
+  c.save(); c.translate(cell.x, cell.y); c.scale(cellS, cellS);
+  c.fillStyle = 'rgba(0,0,0,.28)'; rrect(c, 3, 7, 260, 300, 16); c.fill();
+  c.fillStyle = 'rgba(52,30,16,.8)'; rrect(c, 0, 0, 260, 300, 16); c.fill();
+  c.fillStyle = 'rgba(95,191,85,.9)'; circ(c, 130, 125, 34); c.fill();
+  c.strokeStyle = '#fff'; c.lineWidth = 8; c.lineCap = 'round'; c.lineJoin = 'round'; c.beginPath(); c.moveTo(114, 126); c.lineTo(126, 139); c.lineTo(148, 112); c.stroke();
+  c.fillStyle = '#fff4dc'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = '700 ' + Math.max(20, 15 / cellS) + 'px ' + FONT_D; c.fillText('這格都種完了', 130, 190);
+  c.lineWidth = 5; c.strokeStyle = '#7a4b24'; rrect(c, 0, 0, 260, 300, 16); c.stroke();
+  c.restore();
+}
+function drawCell(cell) {
+  if (!cell.flow) { drawEmptyCell(cell); return; }
+  const c = ctx;
+  c.save(); c.translate(cell.x, cell.y);
+  if (cell.shake > 0) c.translate(Math.sin(T * 70) * 5 * cell.shake * cellS, 0);
+  c.scale(cellS, cellS);
+  c.fillStyle = 'rgba(0,0,0,.28)'; rrect(c, 3, 7, 260, 300, 16); c.fill();
+  c.save(); rrect(c, 0, 0, 260, 300, 16); c.clip();
+  terrain(c, cell.flow.terrain); drawPlants(c, cell); drawChips(c, cell); drawBanner(c, cell);
+  if (cell.intro > 0) { c.fillStyle = 'rgba(255,250,230,' + (cell.intro * .85) + ')'; c.fillRect(0, 0, 260, 300); }
+  c.restore();
+  let col = '#7a4b24', lw = 5;
+  if (cell.flash > 0) { col = cell.flashKind === 'ok' ? '#8be48b' : '#ff6b5b'; lw = 5 + 3 * cell.flash; }
+  else if (drag && hoverCell === cell) { col = '#ffe28a'; lw = 7; }
+  c.lineWidth = lw; c.strokeStyle = col; rrect(c, 0, 0, 260, 300, 16); c.stroke();
+  c.restore();
+}
+
+/* ================= 背景世界：從酷熱荒地到綠意盎然 ================= */
+const HOT = { skyT: [132, 34, 14], skyM: [226, 98, 36], skyB: [255, 178, 86], far: [142, 66, 32], near: [168, 84, 38], gr1: [176, 98, 52], gr2: [132, 66, 34] };
+const FRESH = { skyT: [60, 150, 224], skyM: [130, 202, 242], skyB: [216, 242, 252], far: [92, 168, 120], near: [66, 146, 86], gr1: [118, 196, 84], gr2: [66, 146, 62] };
+const pal = k => mixc(HOT[k], FRESH[k], g);
+const R0 = rng(7);
+const CRACKS = Array.from({ length: 30 }, () => ({ x: R0(), y: R0(), pts: Array.from({ length: 5 }, () => [R0() - .5, R0() - .5]) }));
+const BLADES = Array.from({ length: 280 }, () => ({ x: R0(), y: R0(), h: 6 + R0() * 11, ph: R0() * 6, hue: R0() }));
+const FLOWERS = Array.from({ length: 54 }, () => ({ x: R0(), y: R0(), c: (R0() * 4) | 0 }));
+const DEAD = Array.from({ length: 7 }, () => ({ x: R0(), y: R0(), s: .7 + R0() * .7 }));
+const AMB = Array.from({ length: 44 }, () => ({ x: Math.random(), y: Math.random(), s: 1 + Math.random() * 2, v: .5 + Math.random(), ph: Math.random() * 6 }));
+const SLOTS = (() => { const r = rng(99); return Array.from({ length: 48 }, (_, k) => ({ nx: (.08 + k * .6180339887) % 1, row: (r() * 3) | 0, j: r() - .5, size: r(), seed: (r() * 1000) | 0 })); })();
+
+function addForest(sp) {
+  if (forest.length >= SLOTS.length) return;
+  const s = SLOTS[forest.length];
+  forest.push({ sp, nx: s.nx, row: s.row, j: s.j, size: s.size, seed: s.seed, born: T });
+}
+function cloud(c, x, y, w, a) {
+  c.fillStyle = 'rgba(255,255,255,' + (a * .92) + ')';
+  circ(c, x, y, w * .26); c.fill(); circ(c, x + w * .25, y - w * .1, w * .3); c.fill(); circ(c, x + w * .55, y, w * .26); c.fill();
+  c.fillRect(x, y, w * .55, w * .26 * .9);
+}
+function hillPath(c, base, amp, f1, p1, f2, p2) {
+  c.beginPath(); c.moveTo(0, groundTop + 2);
+  for (let x = 0; x <= W + 8; x += 8) c.lineTo(x, base - amp * (.55 + .45 * Math.sin(x * f1 + p1)) - amp * .4 * Math.sin(x * f2 + p2));
+  c.lineTo(W, groundTop + 2); c.closePath();
+}
+function drawWorld() {
+  const c = ctx, hz = 1 - g;
+  const sk = c.createLinearGradient(0, 0, 0, horizonY + sceneH * .12);
+  sk.addColorStop(0, rgb(pal('skyT'))); sk.addColorStop(.55, rgb(pal('skyM'))); sk.addColorStop(1, rgb(pal('skyB')));
+  c.fillStyle = sk; c.fillRect(0, 0, W, H);
+
+  const sr = clamp(Math.min(W, H) * .075, 26, 64) * lerp(1.5, .8, g), sx = W * .8, sy = beltBottom + sceneH * .2;
+  const sc = mixc([255, 96, 44], [255, 238, 170], g);
+  const gl = c.createRadialGradient(sx, sy, sr * .3, sx, sy, sr * 4.2); gl.addColorStop(0, rgb(sc, lerp(.7, .45, g))); gl.addColorStop(1, rgb(sc, 0));
+  c.fillStyle = gl; c.fillRect(sx - sr * 4.2, sy - sr * 4.2, sr * 8.4, sr * 8.4);
+  c.fillStyle = rgb(mixc([255, 214, 170], [255, 251, 225], g)); circ(c, sx, sy, sr); c.fill();
+
+  if (hz > .02) {
+    c.lineWidth = 5;
+    for (let k = 0; k < 6; k++) {
+      c.strokeStyle = 'rgba(255,226,170,' + (.07 * hz) + ')'; c.beginPath();
+      for (let x = 0; x <= W; x += 14) { const y = horizonY - k * sceneH * .05 + Math.sin(x * .025 + T * 2.2 + k * 1.3) * 3; if (x) c.lineTo(x, y); else c.moveTo(x, y); }
+      c.stroke();
+    }
+    c.fillStyle = 'rgba(110,50,24,' + (.16 * hz) + ')';
+    for (let i = 0; i < 5; i++) { const cx = ((i * .27 * W + T * 8 * (1 + i * .2)) % (W + 300)) - 150; ell(c, cx, horizonY - sceneH * (.04 + .035 * (i % 3)), 150 + i * 14, 16 + i * 2); c.fill(); }
+  }
+  const ca = smooth(.15, .6, g);
+  if (ca > .01) for (let i = 0; i < 5; i++) { const cw = 70 + i * 14, cx = ((i * .31 * W + T * (5 + i * 2)) % (W + cw * 2)) - cw, cy = beltBottom + sceneH * (.05 + .07 * (i % 3)); cloud(c, cx, cy, cw, ca); }
+
+  c.fillStyle = rgb(pal('far')); hillPath(c, horizonY, sceneH * .13, .006, 1.3, .017, .4); c.fill();
+  c.fillStyle = rgb(pal('near')); hillPath(c, groundTop + 4, sceneH * .08, .009, 2.2, .021, 1.1); c.fill();
+
+  const gr = c.createLinearGradient(0, groundTop, 0, H); gr.addColorStop(0, rgb(pal('gr1'))); gr.addColorStop(1, rgb(pal('gr2')));
+  c.fillStyle = gr; c.fillRect(0, groundTop, W, H - groundTop);
+
+  const gh = H - groundTop - 4;
+  if (hz > .02) {
+    c.strokeStyle = 'rgba(58,22,8,' + (.6 * hz) + ')'; c.lineWidth = 1.6;
+    for (const k of CRACKS) { let x = k.x * W, y = groundTop + 4 + k.y * gh; c.beginPath(); c.moveTo(x, y); for (const p of k.pts) { x += p[0] * 70; y += p[1] * 20; c.lineTo(x, y); } c.stroke(); }
+  }
+  if (hz > .25) {
+    c.strokeStyle = 'rgba(70,40,20,' + clamp(hz * 1.2, 0, 1) + ')'; c.lineWidth = 1.6; c.lineCap = 'round';
+    for (const d of DEAD) { const x = d.x * W, y = groundTop + 14 + d.y * gh * .8, s = 10 * d.s; c.beginPath(); c.moveTo(x, y); c.lineTo(x - s, y - s * 1.4); c.moveTo(x, y); c.lineTo(x + s * .8, y - s * 1.6); c.moveTo(x, y); c.lineTo(x + s * .1, y - s * 2); c.moveTo(x - s * .5, y - s * .7); c.lineTo(x - s * 1.2, y - s * .5); c.stroke(); }
+  }
+  const nb = Math.floor(g * BLADES.length);
+  if (nb > 0) {
+    c.lineWidth = 1.8; c.lineCap = 'round';
+    for (let pass = 0; pass < 2; pass++) {
+      c.strokeStyle = pass ? '#5fb34c' : '#3f9a40'; c.beginPath();
+      for (let i = 0; i < nb; i++) { const b = BLADES[i]; if ((b.hue > .5 ? 1 : 0) !== pass) continue; const x = b.x * W, y = groundTop + 4 + b.y * gh, sw = Math.sin(T * 1.8 + b.ph) * 3; c.moveTo(x, y); c.quadraticCurveTo(x + sw * .4, y - b.h * .6, x + sw, y - b.h); }
+      c.stroke();
+    }
+  }
+  const nf = Math.floor(smooth(.5, 1, g) * FLOWERS.length);
+  const FC = ['#ff9db0', '#fff0a0', '#ffffff', '#ffb877'];
+  for (let i = 0; i < nf; i++) { const f = FLOWERS[i]; c.fillStyle = FC[f.c]; circ(c, f.x * W, groundTop + 6 + f.y * gh, 2.6); c.fill(); }
+
+  drawForest();
+
+  const ac = mixc([205, 150, 100], [255, 255, 200], g), aa = lerp(.3, .45, g);
+  for (const p of AMB) { c.fillStyle = rgb(ac, aa); circ(c, p.x * W, (groundTop - sceneH * .5 + p.y * (H - groundTop + sceneH * .5)) + Math.sin(T * p.v + p.ph) * 6, p.s * lerp(1.2, .9, g)); c.fill(); }
+
+  const ba = smooth(.4, .7, g);
+  if (ba > .02) {
+    c.lineWidth = 2; c.lineCap = 'round'; c.strokeStyle = 'rgba(40,50,60,' + ba + ')';
+    for (let i = 0; i < 3; i++) {
+      const x = ((T * 40 * (1 + .2 * i) + i * 300) % (W + 120)) - 60, y = beltBottom + sceneH * (.1 + .08 * i) + Math.sin(T * 2 + i) * 6, wg = Math.sin(T * 10 + i) * 5;
+      c.beginPath(); c.moveTo(x - 8, y + wg * .5); c.quadraticCurveTo(x - 4, y - 3 + wg, x, y); c.quadraticCurveTo(x + 4, y - 3 + wg, x + 8, y + wg * .5); c.stroke();
+    }
+  }
+  if (hz > .02) {
+    const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .35, W / 2, H / 2, Math.max(W, H) * .75);
+    vg.addColorStop(0, 'rgba(110,18,0,0)'); vg.addColorStop(1, 'rgba(110,18,0,' + (.38 * hz) + ')');
+    c.fillStyle = vg; c.fillRect(0, 0, W, H);
+  }
+}
+function drawForest() {
+  if (!forest.length) return;
+  const yTop = groundTop + 6, yBot = Math.max(yTop + 16, cellsTop - 8), baseH = clamp(sceneH * .46, 46, 130);
+  const list = forest.map(t => ({ t, x: 20 + t.nx * (W - 40), y: lerp(yTop, yBot, [.12, .5, .9][t.row]) + t.j * 8, k: [.62, .82, 1][t.row] })).sort((a, b) => a.y - b.y);
+  for (const o of list) {
+    const sc = elastic(clamp((T - o.t.born) / .9, 0, 1)), h = baseH * o.k * (.9 + o.t.size * .2);
+    drawTree(ctx, o.t.sp, o.x, o.y, h, o.t.seed, sc, Math.sin(T * 1.4 + o.t.seed) * .012);
+  }
+}
+
+/* ================= 傳送帶 ================= */
+function itemY(it) { return beltTop + beltH / 2 + Math.sin(T * 3 + it.ph) * 1.5; }
+function drawPlate(type, x, y, r, s) {
+  const c = ctx; c.save(); c.translate(x, y); c.scale(s, s);
+  ell(c, 0, r * .82, r * .9, r * .18); c.fillStyle = 'rgba(0,0,0,.3)'; c.fill();
+  c.fillStyle = '#fff5df'; circ(c, 0, 0, r); c.fill();
+  c.lineWidth = r * .08; c.strokeStyle = '#d8b57a'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(0, 0, r * .86, PI * 1.05, PI * 1.55); c.lineTo(0, 0); c.fill();
+  drawIcon(c, type, 0, -r * .16, r * .6);
+  c.fillStyle = '#4a2f1a'; c.font = '700 ' + Math.round(r * .32) + 'px ' + FONT_B; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ITEMS[type], 0, r * .72);
+  c.restore();
+}
+function drawBelt() {
+  const c = ctx, y0 = beltTop, h = beltH;
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(0, y0 + h + 5, W, 7);
+  const bg = c.createLinearGradient(0, y0, 0, y0 + h); bg.addColorStop(0, '#4a3424'); bg.addColorStop(1, '#2a1b11');
+  c.fillStyle = bg; c.fillRect(0, y0, W, h);
+  c.strokeStyle = 'rgba(255,230,190,.1)'; c.lineWidth = 2;
+  const gap = 26, off = beltOffset % gap;
+  for (let x = -off; x < W + gap; x += gap) { c.beginPath(); c.moveTo(x, y0 + 6); c.lineTo(x - 8, y0 + h - 6); c.stroke(); }
+  c.fillStyle = '#b48b5a'; c.fillRect(0, y0 - 5, W, 5); c.fillRect(0, y0 + h, W, 5);
+  c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(0, y0 - 5, W, 1.5);
+  c.fillStyle = '#8a6a43';
+  for (let x = 14; x < W; x += 56) { circ(c, x, y0 - 2.5, 1.5); c.fill(); circ(c, x, y0 + h + 2.5, 1.5); c.fill(); }
+  for (const it of beltItems) drawPlate(it.type, it.x, itemY(it), R, 1);
+}
+function drawDrag() { drawPlate(drag.type, drag.x + drag.ox, drag.y + drag.oy, R, 1.14); }
+
+/* ================= 分數、彈出字 ================= */
+function popup(x, y, text, col, size) { popups.push({ x: clamp(x, 60, W - 60), y, text, col: col || '#fff', size: size || 18, life: 1.2, max: 1.2 }); }
+function drawPopups() {
+  const c = ctx; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  for (const p of popups) {
+    const k = 1 - p.life / p.max, y = p.y - k * 38;
+    c.globalAlpha = clamp(p.life / .35, 0, 1); c.font = '700 ' + p.size + 'px ' + FONT_D;
+    c.lineWidth = 4; c.strokeStyle = 'rgba(40,20,8,.88)'; c.strokeText(p.text, p.x, y); c.fillStyle = p.col; c.fillText(p.text, p.x, y);
+  }
+  c.globalAlpha = 1;
+}
+const multOf = () => 1 + Math.min(3, Math.floor(combo / 4));
+
+/* ================= 遊戲規則：放下材料 ================= */
+function dropOn(cell, type, px, py) {
+  if (!cell) { combo = 0; popup(px, py - 20, '浪費了！抓了就要馬上用', '#ffd0a0', 17); SFX.waste(); return; }
+  const cx = cell.x + cell.w / 2, cy = cell.y + cell.h * .45;
+  if (!cell.flow) { combo = 0; popup(cx, cy, '這格已經種完了', '#ffd0a0', 17); SFX.waste(); return; }
+  if (cell.locked) { combo = 0; popup(cx, cy, '整理中，材料浪費了', '#ffd0a0', 17); SFX.waste(); return; }
+  const st = cell.flow.steps[cell.step];
+  if (type === st.item) {
+    cell.step++; cell.q.push({ name: st.act, item: st.item }); cell.flash = 1; cell.flashKind = 'ok';
+    combo++; const gain = STEP_PTS * multOf(); score += gain;
+    popup(cx, cy, '+' + gain, '#b9f5a0', 24); SFX.ok();
+    if (cell.step >= cell.flow.steps.length) { cell.locked = true; cell.q.push({ name: 'grow' }, { name: 'hold' }, { name: 'reset' }); }
+  } else {
+    combo = 0; score = Math.max(0, score - 5); cell.shake = 1; cell.flash = 1; cell.flashKind = 'bad';
+    popup(cx, cy - 10, '順序不對 −5', '#ff9b8a', 22); popup(cx, cy + 20, '下一步要「' + ITEMS[st.item] + '」', '#ffe7c0', 16); SFX.bad();
+  }
+}
+
+/* ================= 輸入 ================= */
+function pt(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function hitItem(p) { for (let i = beltItems.length - 1; i >= 0; i--) { const it = beltItems[i]; if (Math.hypot(p.x - it.x, p.y - itemY(it)) <= R + 8) return i; } return -1; }
+function cellAt(x, y) { for (const c of cells) if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return c; return null; }
+cv.addEventListener('pointerdown', e => {
+  if (mode !== 'play') return;
+  const p = pt(e), i = hitItem(p); if (i < 0) return;
+  const it = beltItems.splice(i, 1)[0];
+  drag = { type: it.type, x: p.x, y: p.y, ox: it.x - p.x, oy: itemY(it) - p.y };
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  SFX.grab(); e.preventDefault();
+});
+cv.addEventListener('pointermove', e => {
+  const p = pt(e);
+  if (drag) { drag.x = p.x; drag.y = p.y; hoverCell = cellAt(p.x, p.y) || cellAt(p.x + drag.ox, p.y + drag.oy); cv.style.cursor = 'grabbing'; }
+  else cv.style.cursor = (mode === 'play' && hitItem(p) >= 0) ? 'grab' : 'default';
+});
+function endDrag(e, cancel) {
+  if (!drag) return;
+  const p = pt(e), cell = cancel ? null : (cellAt(p.x, p.y) || cellAt(p.x + drag.ox, p.y + drag.oy));
+  const d = drag; drag = null; hoverCell = null; cv.style.cursor = 'default';
+  dropOn(cell, d.type, p.x, p.y);
+}
+cv.addEventListener('pointerup', e => endDrag(e, false));
+cv.addEventListener('pointercancel', e => endDrag(e, true));
+window.addEventListener('blur', () => { if (drag) { drag = null; hoverCell = null; combo = 0; } });
+
+/* ================= 版面 ================= */
+function layout() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = app.clientWidth; H = app.clientHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  hudH = hud.offsetHeight;
+  beltTop = hudH + 10; beltH = clamp(W * .085, 60, 88); beltBottom = beltTop + beltH + 5; R = beltH * .43;
+  const m = Math.max(8, W * .014), gap = m, bm = m + 4;
+  let s = (W - 2 * m - 2 * gap) / (3 * 260);
+  s = Math.min(s, (H - beltBottom - bm - Math.max(110, H * .2)) / 300, 1.15);
+  s = Math.max(s, .4); cellS = s;
+  const cw = 260 * s, ch = 300 * s, left = (W - (3 * cw + 2 * gap)) / 2;
+  cellsTop = H - bm - ch;
+  cells.forEach((c, i) => { c.x = left + i * (cw + gap); c.y = cellsTop; c.w = cw; c.h = ch; });
+  sceneH = Math.max(60, cellsTop - beltBottom);
+  horizonY = beltBottom + sceneH * .36; groundTop = horizonY + sceneH * .12;
+}
+
+/* ================= 主迴圈 ================= */
+function spawnItem() {
+  const need = cells.filter(c => c.flow && !c.locked).map(c => c.flow.steps[c.step].item);
+  let type = (need.length && Math.random() < .7) ? need[(Math.random() * need.length) | 0] : ITEM_KEYS[(Math.random() * ITEM_KEYS.length) | 0];
+  if (lastTypes.length >= 2 && lastTypes[0] === type && lastTypes[1] === type) type = ITEM_KEYS[(ITEM_KEYS.indexOf(type) + 1) % ITEM_KEYS.length];
+  lastTypes.unshift(type); lastTypes.length = Math.min(lastTypes.length, 2);
+  beltItems.push({ id: uid++, type, x: W + R + 10, ph: Math.random() * 6 });
+}
+function update(dt) {
+  const ramp = mode === 'play' ? clamp((gameTime - timeLeft) / (gameTime * .7), 0, 1) : 0;
+  if (mode === 'play') {
+    if (winAt && T >= winAt) { winAt = 0; endGame(true); }
+    else {
+      const before = Math.ceil(timeLeft); timeLeft -= dt;
+      const after = Math.ceil(Math.max(0, timeLeft)); if (after !== before && after <= 5 && after > 0) SFX.tick();
+      if (timeLeft <= 0) { timeLeft = 0; endGame(false); }
+    }
+  }
+  const speed = W / lerp(10, 6.2, ramp);
+  beltOffset += speed * dt;
+  for (let i = beltItems.length - 1; i >= 0; i--) { beltItems[i].x -= speed * dt; if (beltItems[i].x < -R - 12) beltItems.splice(i, 1); }
+  if (mode !== 'over') { spawnT -= dt; if (spawnT <= 0) { spawnItem(); spawnT = lerp(1.15, .72, ramp); } }
+  cells.forEach(c => updateCell(c, dt));
+  g += (clamp(trees / goal, 0, 1) - g) * Math.min(1, dt * 1.4);
+  for (const p of AMB) { p.x += dt * (.012 + .01 * p.v) * (g < .5 ? 1.8 : 1); if (p.x > 1.02) { p.x = -.02; p.y = Math.random(); } }
+  for (let i = popups.length - 1; i >= 0; i--) { popups[i].life -= dt; if (popups[i].life <= 0) popups.splice(i, 1); }
+}
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
+  drawWorld(); cells.forEach(drawCell); drawBelt(); drawPopups();
+  if (drag) drawDrag();
+}
+let last = 0;
+function frame(ts) {
+  const dt = Math.min(.05, (ts - last) / 1000 || 0); last = ts; T += dt;
+  if (app.clientWidth !== W || app.clientHeight !== H) layout();
+  update(dt); render(); updateHUD();
+  requestAnimationFrame(frame);
+}
+
+/* ================= HUD ================= */
+const eTime = $('vTime'), eScore = $('vScore'), eTrees = $('vTrees'), eCombo = $('vCombo'), stCombo = $('stCombo'), stTime = $('stTime'), pipsBox = $('pips');
+let shown = { t: -1, s: -1, tr: -1, c: -1 };
+let pipEls = [];
+function buildPips() {
+  pipsBox.textContent = ''; pipEls = [];
+  for (let i = 0; i < goal; i++) { const el = document.createElement('i'); el.className = 'pip'; pipsBox.append(el); pipEls.push(el); }
+}
+function updatePips(isNew) {
+  pipEls.forEach((el, i) => {
+    const f = plantedList[i]; el.classList.toggle('on', !!f); el.classList.remove('new');
+    if (f) { el.style.setProperty('--c', SPEC[f.sp].pal[0]); el.title = f.env + '・' + f.tree; } else el.title = '';
+  });
+  const el = isNew && pipEls[plantedList.length - 1];
+  if (el) { void el.offsetWidth; el.classList.add('new'); }
+}
+function bump(el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+function updateHUD() {
+  const t = Math.max(0, Math.ceil(timeLeft));
+  if (t !== shown.t) { shown.t = t; eTime.textContent = t; stTime.classList.toggle('warn', t <= 15 && mode === 'play'); }
+  if (score !== shown.s) { shown.s = score; eScore.textContent = score; bump(eScore); }
+  if (trees !== shown.tr) { shown.tr = trees; eTrees.textContent = trees + '/' + goal; bump(eTrees); }
+  const ck = combo * 10 + multOf();
+  if (ck !== shown.c) { shown.c = ck; stCombo.hidden = combo < 2; eCombo.textContent = combo + (multOf() > 1 ? ' ×' + multOf() : ''); if (combo >= 2) bump(eCombo); }
+}
+$('btnSound').addEventListener('click', e => {
+  soundOn = !soundOn; e.currentTarget.textContent = soundOn ? '音效 開' : '音效 關'; e.currentTarget.setAttribute('aria-pressed', String(soundOn));
+  if (soundOn) { audio(); SFX.grab(); }
+});
+
+/* ================= 開始與結束 ================= */
+const bestEls = {};
+function refreshMenuBests() { DIFFS.forEach(d => { if (bestEls[d.id]) bestEls[d.id].textContent = bests[d.id] > 0 ? '最高 ' + bests[d.id] + ' 分' : '尚無紀錄'; }); }
+function setDiff(d) {
+  diff = d; goal = d.goal; gameTime = d.time;
+  $('vDiff').textContent = d.name; buildPips(); updatePips();
+}
+function startGame(d) {
+  setDiff(d || diff);
+  audio(); mode = 'play'; score = 0; combo = 0; timeLeft = gameTime; trees = 0; winAt = 0;
+  forest.length = 0; beltItems.length = 0; popups.length = 0; lastTypes.length = 0; drag = null; hoverCell = null; spawnT = .2;
+  plantedList.length = 0; updatePips(); queue = buildQueue(diff);
+  cells.forEach(c => { resetCell(c); c.flow = null; });
+  cells.forEach(assignNext);
+  shown = { t: -1, s: -1, tr: -1, c: -1 };
+  $('overlay').hidden = true;
+}
+function showMenu() {
+  mode = 'menu'; drag = null; hoverCell = null; winAt = 0; score = 0; combo = 0; trees = 0; timeLeft = gameTime;
+  forest.length = 0; beltItems.length = 0; plantedList.length = 0; updatePips();
+  queue = buildQueue(DIFFS[1]); cells.forEach(c => { resetCell(c); c.flow = null; }); cells.forEach(assignNext);
+  shown = { t: -1, s: -1, tr: -1, c: -1 };
+  refreshMenuBests();
+  $('over').hidden = true; $('menu').hidden = false; $('overlay').hidden = false;
+}
+function endGame(win) {
+  mode = 'over'; drag = null; hoverCell = null;
+  let stars = 0, bonus = 0;
+  if (win) {
+    bonus = Math.round(timeLeft) * TIME_BONUS; score += bonus;
+    stars = timeLeft >= diff.star3 ? 3 : timeLeft >= diff.star2 ? 2 : 1; SFX.win();
+  } else SFX.lose();
+  if (score > bests[diff.id]) { bests[diff.id] = score; try { localStorage.setItem('plantTreeBest3_' + diff.id, String(score)); } catch (e) {} }
+  const next = DIFFS[DIFFS.indexOf(diff) + 1];
+  $('oRank').textContent = diff.name + (win ? '・全部種完' : '・時間到');
+  $('oTitle').textContent = win ? '過關！' : '還差一點';
+  const st = $('oStars'); st.hidden = !win; st.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+  $('oTimeBox').hidden = !win; $('oTime').textContent = Math.round(timeLeft) + ' 秒';
+  $('oScore').textContent = score; $('oTrees').textContent = trees + '/' + goal; $('oBest').textContent = bests[diff.id];
+  $('oMsg').textContent = win
+    ? goal + ' 棵都種好了，荒地變成森林。剩餘時間加了 ' + bonus + ' 分。' + (stars < 3 ? '剩 ' + diff.star3 + ' 秒以上可以拿三顆星。' : '三顆星，種得很快。')
+    : '還差 ' + (goal - trees) + ' 棵。連擊越長分數越高，材料抓了要馬上用。';
+  const bn = $('btnNext'); bn.hidden = !(win && next); if (win && next) bn.textContent = '挑戰「' + next.name + '」種 ' + next.goal + ' 棵';
+  $('btnAgain').textContent = win ? '再玩一次' : '再試一次';
+  $('menu').hidden = true; $('over').hidden = false; $('overlay').hidden = false;
+}
+$('btnAgain').addEventListener('click', () => startGame(diff));
+$('btnNext').addEventListener('click', () => { const n = DIFFS[DIFFS.indexOf(diff) + 1]; if (n) startGame(n); });
+$('btnMenu').addEventListener('click', showMenu);
+
+/* 開場說明：六種地形各三種樹，加上 8 種材料 */
+(function buildMenu() {
+  const lands = $('lands');
+  TERRAIN_NAMES.forEach(tn => {
+    const fs = FLOWS.filter(f => f.terrain === tn); if (!fs.length) return;
+    const row = document.createElement('div'); row.className = 'land';
+    const b = document.createElement('b'); b.textContent = fs[0].env;
+    const d = document.createElement('div');
+    fs.forEach(f => { const s = document.createElement('span'), i = document.createElement('i'); i.style.setProperty('--c', SPEC[f.sp].pal[0]); s.append(i, f.tree + '（' + f.steps.length + '步）'); d.append(s); });
+    row.append(b, d); lands.append(row);
+  });
+  const mats = $('mats');
+  ITEM_KEYS.forEach(k => {
+    const s = document.createElement('span'), cvs = document.createElement('canvas');
+    cvs.width = cvs.height = 64; cvs.className = 'ic'; drawIcon(cvs.getContext('2d'), k, 32, 32, 28);
+    s.append(cvs, ITEMS[k]); mats.append(s);
+  });
+  const box = $('diffs');
+  DIFFS.forEach((d, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'diff ' + ['easy', 'mid', 'hard'][i];
+    const n = document.createElement('b'); n.textContent = d.name;
+    const s = document.createElement('span'); s.textContent = '種 ' + d.goal + ' 棵';
+    const t = document.createElement('small'); t.textContent = d.time + ' 秒・' + d.note;
+    const bs = document.createElement('small'); bestEls[d.id] = bs;
+    b.append(n, s, t, bs); b.addEventListener('click', () => startGame(d)); box.append(b);
+  });
+  refreshMenuBests();
+})();
+
+/* ================= 啟動 ================= */
+try { if (window.ResizeObserver) { const ro = new ResizeObserver(layout); ro.observe(app); ro.observe(hud); } } catch (e) {}
+window.addEventListener('resize', layout);
+layout();
+setDiff(DIFFS[0]);
+queue = buildQueue(DIFFS[1]); cells.forEach(assignNext);   // 開場畫面先排好三格
+try {
+  document.fonts.load('700 20px "LXGW WenKai TC"', '種樹吧沙漠胡楊梭梭沙棗海岸水筆仔海茄苳木麻黃山坡樟相思台灣欒高山冷杉圓柏濕地落羽松水柳茄苳公園櫻花楓香銀杏種好了生長中這格都種完').catch(() => {});
+  document.fonts.load('500 14px "Noto Sans TC"', '工人涉水針葉苗樹苗種子淡海草方格木樁石塊鋪挖坑放入澆插打固定砌擋土立護整地穴引潮施中順序不對浪費了抓馬上用整理材料下一步播下胎生防風雪').catch(() => {});
+} catch (e) {}
+window.__treeDebug = {
+  cells, forest, plantedList, FLOWS, DIFFS,
+  state: () => ({ mode, diff: diff.id, goal, score, combo, trees, timeLeft, g, queue: queue.length }),
+  plant: (i, type) => dropOn(cells[i], type, cells[i].x + cells[i].w / 2, cells[i].y + 60),
+  assign: (i, id) => { const c = cells[i]; resetCell(c); c.flow = FLOWS.find(f => f.id === id) || null; c.intro = 0; },
+  show: (i, id) => { const c = cells[i]; resetCell(c); c.flow = FLOWS.find(f => f.id === id); c.intro = 0; c.v.grow = 1; c.step = c.flow.steps.length; c.locked = true; },
+  setTrees: n => { forest.length = 0; plantedList.length = 0; trees = n; FLOWS.slice(0, n).forEach(f => { addForest(f.sp); plantedList.push(f); }); updatePips(); },
+  start: id => startGame(DIFFS.find(d => d.id === id) || diff), belt: beltItems,
+  tick: sec => { const n = Math.max(1, Math.round(sec / .05)); for (let i = 0; i < n; i++) { T += .05; update(.05); } render(); updateHUD(); }
+};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
